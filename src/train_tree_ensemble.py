@@ -9,6 +9,8 @@ backtests, fits the final models, and writes the competition submission.
 from __future__ import annotations
 
 import argparse
+import itertools
+import json
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,22 @@ WEATHER_MEMORY_COLUMNS = [
 NDVI_COLUMNS = ["ndvi_ne", "ndvi_nw", "ndvi_se", "ndvi_sw"]
 FEATURE_LAGS = (1, 2, 4, 8, 12, 16)
 FEATURE_WINDOWS = (2, 4, 8, 12, 16)
+DEFAULT_MODEL_PARAMS = {
+    "iq": {"max_features": 0.5, "min_samples_leaf": 5, "max_depth": None},
+    "sj": {"max_features": 1.0, "min_samples_leaf": 5, "max_depth": None},
+}
+TUNING_GRID = {
+    "iq": {
+        "max_features": (0.4, 0.5, 0.6),
+        "min_samples_leaf": (3, 5, 7),
+        "max_depth": (None,),
+    },
+    "sj": {
+        "max_features": (0.8, 0.9, 1.0),
+        "min_samples_leaf": (3, 5, 7),
+        "max_depth": (None, 20),
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,6 +69,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--n-estimators", type=int, default=500)
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help=(
+            "Run the conservative city-specific grid search and write a separate "
+            "tuned submission without replacing the confirmed submission."
+        ),
+    )
+    parser.add_argument(
+        "--tuning-estimators",
+        type=int,
+        default=200,
+        help="Trees per model during tuning; final fitting uses --n-estimators.",
+    )
     parser.add_argument(
         "--skip-backtest",
         action="store_true",
@@ -164,15 +196,20 @@ def make_features(city_frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def tree_model(
-    city: str, random_state: int = 42, n_estimators: int = 500
+    city: str,
+    random_state: int = 42,
+    n_estimators: int = 500,
+    model_params: dict[str, Any] | None = None,
 ) -> Any:
     """Return the confirmed city-specific estimator."""
+    params = {**DEFAULT_MODEL_PARAMS[city], **(model_params or {})}
     if city == "iq":
         forest = RandomForestRegressor(
             n_estimators=n_estimators,
             criterion="squared_error",
-            max_features=0.5,
-            min_samples_leaf=5,
+            max_features=params["max_features"],
+            min_samples_leaf=params["min_samples_leaf"],
+            max_depth=params["max_depth"],
             n_jobs=-1,
             random_state=random_state,
         )
@@ -185,8 +222,9 @@ def tree_model(
         forest = ExtraTreesRegressor(
             n_estimators=n_estimators,
             criterion="poisson",
-            max_features=1.0,
-            min_samples_leaf=5,
+            max_features=params["max_features"],
+            min_samples_leaf=params["min_samples_leaf"],
+            max_depth=params["max_depth"],
             n_jobs=-1,
             random_state=random_state,
         )
@@ -200,7 +238,10 @@ def _integer_cases(values: np.ndarray | pd.Series) -> np.ndarray:
 
 
 def run_backtests(
-    train: pd.DataFrame, random_state: int, n_estimators: int
+    train: pd.DataFrame,
+    random_state: int,
+    n_estimators: int,
+    model_params: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Evaluate four and six expanding annual folds without shuffling."""
     scores: list[dict[str, Any]] = []
@@ -218,7 +259,12 @@ def run_backtests(
             for fold, start in enumerate(starts, start=1):
                 train_indices = np.arange(start)
                 validation_indices = np.arange(start, start + 52)
-                model = tree_model(city, random_state, n_estimators)
+                model = tree_model(
+                    city,
+                    random_state,
+                    n_estimators,
+                    None if model_params is None else model_params[city],
+                )
                 model.fit(features.iloc[train_indices], targets[train_indices])
                 prediction = _integer_cases(
                     model.predict(features.iloc[validation_indices])
@@ -263,12 +309,149 @@ def run_backtests(
     return pd.DataFrame(scores), pd.concat(prediction_rows, ignore_index=True)
 
 
+def _grid_configs(city: str) -> list[dict[str, Any]]:
+    grid = TUNING_GRID[city]
+    keys = list(grid)
+    return [
+        dict(zip(keys, values))
+        for values in itertools.product(*(grid[key] for key in keys))
+    ]
+
+
+def _evaluate_tuning_config(
+    city: str,
+    city_frame: pd.DataFrame,
+    horizon: int,
+    params: dict[str, Any],
+    random_state: int,
+    n_estimators: int,
+) -> dict[str, float]:
+    features = make_features(city_frame)
+    targets = city_frame[TARGET_COLUMN].to_numpy(float)
+    annual_actual: list[np.ndarray] = []
+    annual_prediction: list[np.ndarray] = []
+    for start in range(len(city_frame) - 4 * 52, len(city_frame), 52):
+        train_indices = np.arange(start)
+        validation_indices = np.arange(start, start + 52)
+        model = tree_model(city, random_state, n_estimators, params)
+        model.fit(features.iloc[train_indices], targets[train_indices])
+        annual_actual.append(targets[validation_indices].astype(int))
+        annual_prediction.append(
+            _integer_cases(model.predict(features.iloc[validation_indices]))
+        )
+
+    horizon_start = len(city_frame) - horizon
+    train_indices = np.arange(horizon_start)
+    validation_indices = np.arange(horizon_start, len(city_frame))
+    model = tree_model(city, random_state, n_estimators, params)
+    model.fit(features.iloc[train_indices], targets[train_indices])
+    horizon_actual = targets[validation_indices].astype(int)
+    horizon_prediction = _integer_cases(
+        model.predict(features.iloc[validation_indices])
+    )
+    outbreak_threshold = np.quantile(horizon_actual, 0.90)
+    outbreak = horizon_actual >= outbreak_threshold
+    return {
+        "annual_mae": mean_absolute_error(
+            np.concatenate(annual_actual), np.concatenate(annual_prediction)
+        ),
+        "horizon_mae": mean_absolute_error(horizon_actual, horizon_prediction),
+        "outbreak_mae": mean_absolute_error(
+            horizon_actual[outbreak], horizon_prediction[outbreak]
+        ),
+        "prediction_mean": float(np.mean(horizon_prediction)),
+        "prediction_max": float(np.max(horizon_prediction)),
+    }
+
+
+def tune_hyperparameters(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    random_state: int,
+    n_estimators: int,
+) -> tuple[pd.DataFrame, dict[str, dict[str, Any]]]:
+    """Run a guarded local grid search using chronological validation only."""
+    rows: list[dict[str, Any]] = []
+    best_params: dict[str, dict[str, Any]] = {}
+    for city in sorted(SUPPORTED_CITIES):
+        city_frame = (
+            train.loc[train["city"].eq(city)]
+            .sort_values(DATE_COLUMN)
+            .reset_index(drop=True)
+        )
+        horizon = int(test["city"].eq(city).sum())
+        configs = _grid_configs(city)
+        baseline = _evaluate_tuning_config(
+            city,
+            city_frame,
+            horizon,
+            DEFAULT_MODEL_PARAMS[city],
+            random_state,
+            n_estimators,
+        )
+        for trial, params in enumerate(configs, start=1):
+            metrics = _evaluate_tuning_config(
+                city,
+                city_frame,
+                horizon,
+                params,
+                random_state,
+                n_estimators,
+            )
+            amplitude_ok = (
+                metrics["prediction_mean"] >= 0.90 * baseline["prediction_mean"]
+                and metrics["prediction_mean"] <= 1.10 * baseline["prediction_mean"]
+                and metrics["prediction_max"] >= 0.90 * baseline["prediction_max"]
+            )
+            validation_ok = (
+                metrics["annual_mae"] <= 1.03 * baseline["annual_mae"]
+                and metrics["horizon_mae"] <= 1.03 * baseline["horizon_mae"]
+            )
+            relative_score = 0.5 * (
+                metrics["annual_mae"] / baseline["annual_mae"]
+                + metrics["horizon_mae"] / baseline["horizon_mae"]
+            )
+            eligible = amplitude_ok and validation_ok
+            row = {
+                "city": city,
+                "trial": trial,
+                **params,
+                **metrics,
+                "baseline_annual_mae": baseline["annual_mae"],
+                "baseline_horizon_mae": baseline["horizon_mae"],
+                "amplitude_ok": amplitude_ok,
+                "validation_ok": validation_ok,
+                "eligible": eligible,
+                "selection_score": relative_score,
+            }
+            rows.append(row)
+            print(
+                f"{city.upper()} {trial:02d}/{len(configs):02d} "
+                f"annual={metrics['annual_mae']:.3f} "
+                f"horizon={metrics['horizon_mae']:.3f} "
+                f"score={relative_score:.4f} eligible={eligible}"
+            )
+        city_rows = pd.DataFrame(row for row in rows if row["city"] == city)
+        winner = city_rows.loc[city_rows["eligible"]].sort_values(
+            ["selection_score", "horizon_mae", "annual_mae", "trial"]
+        ).iloc[0]
+        best_params[city] = {
+            "max_features": float(winner["max_features"]),
+            "min_samples_leaf": int(winner["min_samples_leaf"]),
+            "max_depth": (
+                None if pd.isna(winner["max_depth"]) else int(winner["max_depth"])
+            ),
+        }
+    return pd.DataFrame(rows), best_params
+
+
 def fit_final(
     train: pd.DataFrame,
     test: pd.DataFrame,
     template: pd.DataFrame,
     random_state: int,
     n_estimators: int,
+    model_params: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Fit both city models on all labels and predict the supplied test rows."""
     rows: list[pd.DataFrame] = []
@@ -276,6 +459,7 @@ def fit_final(
         "cities": {},
         "random_state": random_state,
         "n_estimators": n_estimators,
+        "model_params": model_params or DEFAULT_MODEL_PARAMS,
     }
     for city in sorted(train["city"].unique()):
         train_city = train.loc[train["city"].eq(city)].copy()
@@ -291,7 +475,12 @@ def fit_final(
         test_indices = np.flatnonzero(combined["_split"].eq("test").to_numpy())
         features = make_features(combined)
         targets = combined.iloc[train_indices][TARGET_COLUMN].to_numpy(float)
-        model = tree_model(city, random_state, n_estimators)
+        model = tree_model(
+            city,
+            random_state,
+            n_estimators,
+            None if model_params is None else model_params[city],
+        )
         model.fit(features.iloc[train_indices], targets)
         result = combined.iloc[test_indices][KEY_COLUMNS].copy()
         result[TARGET_COLUMN] = _integer_cases(
@@ -314,20 +503,56 @@ def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     train, test, template = load_data(args.data_dir)
+    model_params: dict[str, dict[str, Any]] | None = None
+    if args.tune:
+        tuning_results, model_params = tune_hyperparameters(
+            train,
+            test,
+            args.random_state,
+            args.tuning_estimators,
+        )
+        tuning_results.to_csv(
+            args.output_dir / "tree_tuning_results.csv", index=False
+        )
+        (args.output_dir / "tree_tuning_best_params.json").write_text(
+            json.dumps(model_params, indent=2) + "\n", encoding="utf-8"
+        )
+        print("\nSelected guarded parameters:")
+        print(json.dumps(model_params, indent=2))
+
     if not args.skip_backtest:
         scores, validation_predictions = run_backtests(
-            train, args.random_state, args.n_estimators
+            train,
+            args.random_state,
+            args.n_estimators,
+            model_params,
         )
-        scores.to_csv(args.output_dir / "tree_validation_scores.csv", index=False)
+        validation_prefix = "tree_tuned" if args.tune else "tree"
+        scores.to_csv(
+            args.output_dir / f"{validation_prefix}_validation_scores.csv",
+            index=False,
+        )
         validation_predictions.to_csv(
-            args.output_dir / "tree_validation_predictions.csv", index=False
+            args.output_dir / f"{validation_prefix}_validation_predictions.csv",
+            index=False,
         )
         print(scores.to_string(index=False))
     submission, artifacts = fit_final(
-        train, test, template, args.random_state, args.n_estimators
+        train,
+        test,
+        template,
+        args.random_state,
+        args.n_estimators,
+        model_params,
     )
-    submission.to_csv(args.output_dir / "submission_tree_ensemble.csv", index=False)
-    joblib.dump(artifacts, args.output_dir / "tree_ensemble_models.joblib")
+    if args.tune:
+        submission_name = "submission_tree_tuned.csv"
+        model_name = "tree_tuned_models.joblib"
+    else:
+        submission_name = "submission_tree_ensemble_2.csv"
+        model_name = "tree_ensemble_models_2.joblib"
+    submission.to_csv(args.output_dir / submission_name, index=False)
+    joblib.dump(artifacts, args.output_dir / model_name)
     print("\nFinal prediction distributions:")
     print(
         submission.groupby("city")[TARGET_COLUMN]
