@@ -232,43 +232,10 @@ Its separate output is `submission_tree_sj_star.csv`; detailed decisions are in
 `sj_star_outer_results.csv`, `sj_star_final_search.csv`, and
 `sj_star_summary.json`.
 
-## Vendor 12.67 climate-history neural network
-
-The repository under `vendors/dengai-predicting-disease-spread` records a real
-12.6779 leaderboard score. Its final model is a dense SELU network over
-city-specific portions of a 52-week climate history, rather than an LSTM. The
-reproduction preserves the vendor's variable-specific windows, MAE loss,
-dropout, RMSprop schedule, SJ-based IQ scaling, and implicit two-week output
-offset. A separate enhanced candidate appends this project's seasonal,
-biological, anomaly, and weather-dynamics features with corrected alignment.
-
-TensorFlow is isolated from the main Python 3.14 environment:
-
-```bash
-/opt/homebrew/bin/python3.11 -m venv .venv-tf
-.venv-tf/bin/python -m pip install -r requirements-tf.txt
-.venv-tf/bin/python src/train_vendor_history_tf.py --seed 42
-```
-
-The run creates six competition files without replacing the confirmed tree:
-
-- `submission_tf_vendor_shift2.csv`: closest TensorFlow reproduction.
-- `submission_tf_enhanced_aligned.csv`: full engineered-feature candidate.
-- `submission_tf_vendor_enhanced_w025.csv`: conservative 25% enhancement.
-- `submission_tf_vendor_enhanced_w05.csv`: equal-weight blend.
-- `submission_tf_city_hybrid.csv`: vendor IQ plus fully enhanced SJ.
-- `submission_tf_city_hybrid_w025.csv`: vendor IQ plus 25% enhanced SJ.
-
-`train_vendor_history_nn.py` provides a dependency-free NumPy implementation
-and chronological comparison of shifted/aligned and vendor/enhanced variants.
-The enhanced model wins local recent-fold validation, but its substantially
-lower prediction amplitude makes it experimental until leaderboard-tested.
-
 ### Self-contained feature-specific lag MLP
 
 The canonical implementation is the readable package in
-[`src/feature_lag_mlp/`](src/feature_lag_mlp/). It does not require the local
-`vendors/` directory or saved model weights. The feature-specific lag windows,
+[`src/feature_lag_mlp/`](src/feature_lag_mlp/). The feature-specific lag windows,
 preprocessing, model, training, temporal validation, and search space are split
 by responsibility; the two top-level scripts are only command-line entry
 points.
@@ -279,6 +246,10 @@ maps each pipeline stage to code, explains the data patterns and historical
 alignment/normalization choices, and documents the validation and error
 analysis used for tuning. `src/visualize_feature_lag_mlp.py` turns the same raw
 data and confirmation tables into four presentation-ready diagnostic figures.
+
+For the chronological reasoning from the 22.5 tree baseline, through the
+feature-specific lag search, to the final 16.6 multiscale representation, read
+[`docs/from_trees_and_lags_to_multiscale_mlp.md`](docs/from_trees_and_lags_to_multiscale_mlp.md).
 
 Train the confirmed improved configuration:
 
@@ -298,10 +269,9 @@ Validate preprocessing and matrix shapes without loading TensorFlow:
 .venv-tf/bin/python src/train_feature_lag_mlp.py --prepare-only
 ```
 
-The improved profile preserves the feature representation and city-specific
+The profile preserves the feature representation and city-specific
 hidden widths. It changes only San Juan dropout from `0.5, 0.5` to `0.3, 0.7`;
-Iquitos remains at `0.5, 0.5`. The local `vendors/` directory is ignored by
-Git and is not needed for this workflow.
+Iquitos remains at `0.5, 0.5`.
 
 Tune the same three-Dense-layer model using expanding temporal folds:
 
@@ -311,49 +281,39 @@ Tune the same three-Dense-layer model using expanding temporal folds:
 
 The tuner searches city-specific hidden widths, two dropout rates, and learning
 rate. It confirms the leading candidates over three annual folds and three
-seeds, always including the 19.1 configuration as the control. Results use the
-`feature_lag_mlp_tuning_` prefix, and the final seed-ensemble candidate is
-`submission_feature_lag_mlp_tuned.csv`.
+seeds, always including the 19.1 configuration as the control. Final prediction
+now defaults to seed 42: it scored **18.8 MAE**, while averaging seeds 17, 42,
+and 73 scored 19.5. The ensemble can still be reproduced explicitly with
+`--final-seeds 17,42,73`.
 
 The completed search selected a narrower second hidden layer for both cities:
 `100 → 25` for San Juan and `70 → 18` for Iquitos. Competition-weighted
 temporal validation improved from 16.827 for the 19.1 control to 15.862. See
-`artifacts/feature_lag_mlp_tuning_report.md`; hidden-test improvement still
-requires leaderboard evaluation.
+`artifacts/feature_lag_mlp_tuning_report.md` for the local and leaderboard
+comparisons.
 
-### Historical end-to-end reproduction
+A separate controlled robustness screen tested feature-block climate-noise
+augmentation and a regularized linear skip branch. Neither beat the unchanged
+18.8 model on temporal MAE, so both remain optional experiments. Run it with
+`src/experiment_feature_lag_mlp_robustness.py`; see
+`artifacts/feature_lag_mlp_robustness_report.md` for the results.
 
-Retrain the complete V10 process from raw competition data without loading the
-vendor's saved model weights:
+The stronger representation experiment compresses each climate series into
+causal multiscale levels, variability, trends, and cyclic seasonality. It
+improves the three-fold, three-seed weighted local MAE from 15.862 to 13.924.
+The SJ-only file `submission_feature_lag_mlp_multiscale_summaries_seed42_sj_only.csv`
+scored **16.6 hidden-test MAE**, improving the previous 18.8 champion by 2.2.
 
-```bash
-.venv-tf/bin/python src/train_vendor_v10_reproduction.py --seed 42
-```
-
-The script preserves the original raw-file interpolation, 53-row duplicated
-history prefix, SJ-derived scaling for both cities, variable-specific history
-trimming, 461/380-dimensional city inputs, SELU/dropout networks, RMSprop
-settings, 40 epochs of 200 batches, city-specific shuffling and learning-rate
-callbacks, and the original two-row output offset. It writes
-`submission_vendor_v10_retrained.csv`, both newly trained `.keras` models,
-per-epoch histories, and `vendor_v10_retrained.json`. No H5 weights are read.
-
-### Saved-weight audit only
-
-The vendor did not commit the final 12.67 weights, but it did commit the V10
-models associated with its earlier 17-MAE run (the accompanying screenshots
-show later scores near 15). Reproduce those models without retraining:
-
-```bash
-.venv-tf/bin/python src/reproduce_vendor_17_57.py
-```
-
-This command traces the artifacts to commit `be845a3`, loads
-`sj_model_17.57MAP.h5` and `iq_model_17.57MAP.h5`, and exactly preserves the V10
-461/380-column inputs, raw-file interpolation order, duplicated history rows,
-SJ-derived scaling, and two-row submission offset. It writes
-`submission_vendor_saved_17_57.csv` and a checksum/shape audit in
-`vendor_saved_17_57.json`.
+Retuning the MLP for the compressed 180-value input selected a narrower
+`48 → 12` network, but its confirmed local gain is only 0.224 MAE and its
+outbreak error is slightly worse. The resulting
+`submission_feature_lag_mlp_multiscale_architecture_seed42_sj_only.csv` scored
+**18.1 MAE**, confirming that the apparent local gain was validation noise.
+Keep the original `100 → 25` architecture for this representation. The
+both-city multiscale submission also scored **16.6**, so replacing IQ is
+approximately neutral at leaderboard precision. Run the controlled screen with
+`src/tune_multiscale_feature_lag_mlp.py`; see
+`artifacts/feature_lag_mlp_representation_report.md` for the evidence.
 
 ## Tests
 
