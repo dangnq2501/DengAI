@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from .config import DATE_COLUMN, SHARED_SJ_NORMALIZATION, TARGET_COLUMN, TrainingSchedule
-from .features import build_test_matrix, build_training_matrix
+from .representations import (
+    RAW_LAGS,
+    build_representation_test_matrix,
+    build_representation_training_matrix,
+)
 from .search_space import Candidate
 from .training import fit_arrays, predict_cases, set_tensorflow_seed
 
@@ -59,6 +63,7 @@ def prepared_folds(
     city: str,
     fold_count: int,
     fold_weeks: int,
+    representation: str = RAW_LAGS,
 ) -> list[dict[str, Any]]:
     """Materialize matrices once so every candidate sees identical fold data."""
     prepared = []
@@ -71,8 +76,11 @@ def prepared_folds(
     for fold, fold_train, validation in temporal_folds(
         train, city, fold_count, fold_weeks
     ):
-        train_x, train_y = build_training_matrix(
-            fold_train, city, SHARED_SJ_NORMALIZATION
+        train_x, train_y = build_representation_training_matrix(
+            fold_train,
+            city,
+            representation,
+            SHARED_SJ_NORMALIZATION,
         )
         validation_features = validation
         if city == "iq":
@@ -92,10 +100,11 @@ def prepared_folds(
             sj_block = sj_frame.iloc[sj_start : min(sj_end, len(sj_frame))]
             validation_features = pd.concat([sj_block, validation], ignore_index=True)
 
-        validation_x = build_test_matrix(
+        validation_x = build_representation_test_matrix(
             fold_train,
             validation_features,
             city,
+            representation,
             SHARED_SJ_NORMALIZATION,
         )
         prepared.append(
@@ -127,7 +136,7 @@ def fit_candidate(
         fold["train_y"],
         city,
         candidate.config,
-        schedule,
+        replace(schedule, feature_noise_std=candidate.feature_noise_std),
         verbose,
     )
     _, prediction = predict_cases(result.model, fold["validation_x"])
@@ -167,6 +176,9 @@ def summarize_results(results: pd.DataFrame) -> pd.DataFrame:
         "dropout_1",
         "dropout_2",
         "learning_rate",
+        "linear_skip",
+        "l2_strength",
+        "feature_noise_std",
     ]
     summary = (
         results.groupby(group_columns, as_index=False)

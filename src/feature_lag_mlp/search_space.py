@@ -19,6 +19,9 @@ class Candidate:
     dropout_1: float
     dropout_2: float
     learning_rate: float
+    linear_skip: bool = False
+    l2_strength: float = 0.0
+    feature_noise_std: float = 0.0
 
     @property
     def config(self) -> ModelConfig:
@@ -28,6 +31,8 @@ class Candidate:
             dropout_1=self.dropout_1,
             dropout_2=self.dropout_2,
             learning_rate=self.learning_rate,
+            linear_skip=self.linear_skip,
+            l2_strength=self.l2_strength,
         )
 
     @property
@@ -89,4 +94,76 @@ def candidate_from_summary(row: pd.Series) -> Candidate:
         dropout_1=float(row["dropout_1"]),
         dropout_2=float(row["dropout_2"]),
         learning_rate=float(row["learning_rate"]),
+        linear_skip=(
+            bool(row["linear_skip"])
+            if "linear_skip" in row and not pd.isna(row["linear_skip"])
+            else False
+        ),
+        l2_strength=(
+            float(row["l2_strength"])
+            if "l2_strength" in row and not pd.isna(row["l2_strength"])
+            else 0.0
+        ),
+        feature_noise_std=(
+            float(row["feature_noise_std"])
+            if "feature_noise_std" in row and not pd.isna(row["feature_noise_std"])
+            else 0.0
+        ),
     )
+
+
+def robustness_grid(city: str) -> list[Candidate]:
+    """Isolate small complexity and data-augmentation changes from the winner."""
+    if city == "sj":
+        widths = (100, 25)
+        dropout = (0.30, 0.70)
+        learning_rate = 0.010
+    elif city == "iq":
+        widths = (70, 18)
+        dropout = (0.50, 0.50)
+        learning_rate = 0.001
+    else:
+        raise ValueError(f"Unknown city: {city}")
+
+    base = (*widths, *dropout, learning_rate)
+    return [
+        Candidate("tuned_seed42_control", *base),
+        Candidate("climate_noise_005", *base, feature_noise_std=0.005),
+        Candidate("climate_noise_010", *base, feature_noise_std=0.010),
+        Candidate("climate_noise_020", *base, feature_noise_std=0.020),
+        Candidate(
+            "linear_skip_l2_1e4",
+            *base,
+            linear_skip=True,
+            l2_strength=1e-4,
+        ),
+        Candidate(
+            "linear_skip_noise_010",
+            *base,
+            linear_skip=True,
+            l2_strength=1e-4,
+            feature_noise_std=0.010,
+        ),
+    ]
+
+
+def multiscale_sj_architecture_grid() -> list[Candidate]:
+    """Test capacity and regularization for the 180-value SJ representation.
+
+    The raw-lag winner is retained as the control.  Each other candidate changes
+    one design axis at a time, which keeps the result interpretable and limits
+    selection noise on this small time series.
+    """
+    values = [
+        ("summary_control", 100, 25, 0.30, 0.70, 0.010),
+        ("width_48_12", 48, 12, 0.30, 0.70, 0.010),
+        ("width_64_16", 64, 16, 0.30, 0.70, 0.010),
+        ("width_80_20", 80, 20, 0.30, 0.70, 0.010),
+        ("width_128_32", 128, 32, 0.30, 0.70, 0.010),
+        ("dropout_15_45", 100, 25, 0.15, 0.45, 0.010),
+        ("dropout_20_50", 100, 25, 0.20, 0.50, 0.010),
+        ("dropout_20_60", 100, 25, 0.20, 0.60, 0.010),
+        ("dropout_30_60", 100, 25, 0.30, 0.60, 0.010),
+        ("lr_005", 100, 25, 0.30, 0.70, 0.005),
+    ]
+    return [Candidate(*value) for value in values]

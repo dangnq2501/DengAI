@@ -33,9 +33,12 @@ WEATHER_FEATURES = [
     "station_precip_mm",
 ]
 
-# These are the final PPS-labelled windows in the historical experiment. The
-# source does not contain the search that produced them, so this project treats
-# them as fixed, auditable model configuration rather than recomputed facts.
+# V9 scores history lengths 3..51 independently for every city/feature with a
+# DecisionTreeRegressor and 10-fold negative MAE. It visualizes the score table
+# as a heatmap but does not programmatically select an argmax. V10 introduces
+# these final dictionaries, apparently copied from that manual inspection. We
+# therefore preserve them as fixed, auditable configuration rather than claim
+# that the original selection is deterministic end to end.
 LAG_WINDOWS = {
     "sj": {
         "precipitation_amt_mm": 40,
@@ -98,6 +101,8 @@ class ModelConfig:
     dropout_1: float
     dropout_2: float
     learning_rate: float
+    linear_skip: bool = False
+    l2_strength: float = 0.0
 
     @property
     def hidden_widths(self) -> tuple[int, int]:
@@ -141,4 +146,4 @@ class TrainingSchedule:
     steps_per_epoch: int = 200
     batch_size: int = 16
     lr_mode: str = "max"
-
+    feature_noise_std: float = 0.0

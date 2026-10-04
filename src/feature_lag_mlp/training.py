@@ -11,6 +11,7 @@ import pandas as pd
 from .config import (
     DATE_COLUMN,
     KEY_COLUMNS,
+    LAG_WINDOWS,
     ModelConfig,
     TARGET_COLUMN,
     TrainingSchedule,
@@ -51,8 +52,35 @@ def fit_arrays(
     if city == "sj":
         dataset = dataset.shuffle(500)
     dataset = dataset.batch(schedule.batch_size).repeat()
+    if schedule.feature_noise_std > 0:
+        # One random offset is shared by all lags of the same climate feature.
+        # This simulates small sensor/calibration changes without destroying the
+        # temporal shape within a feature history or inventing case labels.
+        block_ids = np.concatenate(
+            [
+                np.full(window, index, dtype="int32")
+                for index, window in enumerate(LAG_WINDOWS[city].values())
+            ]
+        )
+        block_ids_tensor = tf.constant(block_ids)
+        block_count = len(LAG_WINDOWS[city])
 
-    model = build_model(city, config)
+        def add_feature_block_noise(features, labels):
+            offsets = tf.random.normal(
+                shape=(tf.shape(features)[0], block_count),
+                stddev=schedule.feature_noise_std,
+                dtype=features.dtype,
+            )
+            noise = tf.gather(offsets, block_ids_tensor, axis=1)
+            return features + noise, labels
+
+        dataset = dataset.map(
+            add_feature_block_noise,
+            num_parallel_calls=tf.data.AUTOTUNE,
+            deterministic=True,
+        )
+
+    model = build_model(city, config, input_dimension=train_x.shape[1])
     callback = tf.keras.callbacks.ReduceLROnPlateau(
         monitor="mae",
         factor=0.8,
@@ -116,4 +144,3 @@ def assemble_submission(
         raise ValueError("Submission row order differs from the template")
     submission[TARGET_COLUMN] = submission[TARGET_COLUMN].astype(int)
     return submission
-
