@@ -1,9 +1,19 @@
 # DengAI dengue forecasting
 
-This repository contains the confirmed city-specific tree solution for the
-DengAI competition. It achieved hidden-test MAE **22.5**.
+This repository documents the progression from a city-specific tree baseline
+to the current best DengAI model. The confirmed multiscale MLP achieved
+hidden-test MAE **16.6**; the earlier tree system achieved 22.5.
 
-## Model
+## Current best model
+
+- **Representation:** SJ uses 180 causal multiscale climate features; IQ keeps
+  the tuned 380-value raw feature-specific lag history.
+- **San Juan MLP:** `180 → 100 → 25 → 1`, dropout `0.30 → 0.70`.
+- **Iquitos MLP:** `380 → 70 → 18 → 1`, dropout `0.50 → 0.50`.
+- **Training:** MAE loss, RMSprop, seed 42, separate model per city.
+- **Hidden-test result:** **16.6 MAE**.
+
+## Tree baseline
 
 - **Iquitos:** `RandomForestRegressor` trained on `log1p(total_cases)`.
 - **San Juan:** `ExtraTreesRegressor` using the Poisson split criterion.
@@ -35,12 +45,57 @@ DengAI/
 
 ## Setup
 
-From this directory:
+The best neural model is locked to Python 3.11 and the package versions in
+`uv.lock`. From this directory, create the environment with:
 
 ```bash
-python3 -m venv ../../.venv
-../../.venv/bin/python -m pip install -r requirements.txt
+uv sync
+uv run python -c "import tensorflow as tf; print(tf.__version__)"
 ```
+
+The second command should print `2.16.2`. To run the optional tree and plotting
+workflows in the same environment, use:
+
+```bash
+uv sync --extra trees --extra plots
+```
+
+### Reproduce the best 16.6 submission
+
+The winner is a city hybrid: SJ uses multiscale summaries and IQ uses the tuned
+raw-lag representation. Rebuild both models from the raw competition data with:
+
+```bash
+uv run src/train_best_submission.py --seed 42 --verbose 2
+```
+
+The competition file is:
+
+```text
+artifacts/submission_feature_lag_mlp_multiscale_summaries_seed42_sj_only.csv
+```
+
+For the locked macOS ARM reproduction, its expected SHA-256 is:
+
+```text
+0a2eb63b608ba88e2f30d42314a9443a1b73caaebf310890d14aec24f2645492
+```
+
+`src/train_feature_lag_mlp_representation.py` instead trains multiscale inputs
+for **both** cities. That is an ablation and scores about 18.8, not 16.6.
+
+`src/train_feature_lag_mlp.py` is a different entry point: it trains the older
+raw feature-specific lag representation. Its default `improved` profile is the
+19.1-era configuration, not the final 16.6 model. The 18.8 raw-lag control can
+be rebuilt explicitly with:
+
+```bash
+uv run src/train_feature_lag_mlp.py --profile tuned --seed 42
+```
+
+The older manual virtual-environment instructions remain available in
+`requirements-tf.txt`, but do not mix that `.venv-tf` environment with the
+locked `uv` environment.
 
 ## Train and validate
 
@@ -309,9 +364,9 @@ Retuning the MLP for the compressed 180-value input selected a narrower
 outbreak error is slightly worse. The resulting
 `submission_feature_lag_mlp_multiscale_architecture_seed42_sj_only.csv` scored
 **18.1 MAE**, confirming that the apparent local gain was validation noise.
-Keep the original `100 → 25` architecture for this representation. The
-both-city multiscale submission also scored **16.6**, so replacing IQ is
-approximately neutral at leaderboard precision. Run the controlled screen with
+Keep the original `100 → 25` SJ architecture for this representation. The
+both-city multiscale submission scored about **18.8**, so IQ must remain on its
+tuned raw-lag representation. Run the controlled screen with
 `src/tune_multiscale_feature_lag_mlp.py`; see
 `artifacts/feature_lag_mlp_representation_report.md` for the evidence.
 
