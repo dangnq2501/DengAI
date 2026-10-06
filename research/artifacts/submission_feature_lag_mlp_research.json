@@ -1,0 +1,106 @@
+{
+  "method": "tuned feature-lag MLP research submission",
+  "backend": "numpy",
+  "seeds": [
+    17,
+    42,
+    73,
+    101,
+    137
+  ],
+  "cities": {
+    "sj": {
+      "mlp_weight": 0.5,
+      "rounding": "floor",
+      "candidate": "tuned_sj",
+      "final_runs": [
+        {
+          "seed": 17,
+          "backend": "numpy",
+          "final_training_mae": 6.330772180506085,
+          "prediction_mean": 29.92583445476661,
+          "prediction_max": 180.7473606382982
+        },
+        {
+          "seed": 42,
+          "backend": "numpy",
+          "final_training_mae": 6.840079353013483,
+          "prediction_mean": 25.209144859802187,
+          "prediction_max": 161.56836715067956
+        },
+        {
+          "seed": 73,
+          "backend": "numpy",
+          "final_training_mae": 8.023350335873436,
+          "prediction_mean": 25.771604238338647,
+          "prediction_max": 155.22182910720392
+        },
+        {
+          "seed": 101,
+          "backend": "numpy",
+          "final_training_mae": 7.592150903322902,
+          "prediction_mean": 28.065172419777888,
+          "prediction_max": 194.80463919327937
+        },
+        {
+          "seed": 137,
+          "backend": "numpy",
+          "final_training_mae": 10.350705040083024,
+          "prediction_mean": 24.88680484528908,
+          "prediction_max": 178.16367551978217
+        }
+      ],
+      "ensemble_raw_mean": 24.226240697182057,
+      "ensemble_raw_max": 96.23108757569277,
+      "submission_mean": 23.734615384615385,
+      "submission_max": 96
+    },
+    "iq": {
+      "mlp_weight": 0.5,
+      "rounding": "nearest",
+      "candidate": "tuned_iq",
+      "final_runs": [
+        {
+          "seed": 17,
+          "backend": "numpy",
+          "final_training_mae": 2.503278437887357,
+          "prediction_mean": 6.502664834580899,
+          "prediction_max": 20.88893507569763
+        },
+        {
+          "seed": 42,
+          "backend": "numpy",
+          "final_training_mae": 2.3844748644631375,
+          "prediction_mean": 5.251208012118604,
+          "prediction_max": 19.326100797659844
+        },
+        {
+          "seed": 73,
+          "backend": "numpy",
+          "final_training_mae": 2.1209849168940424,
+          "prediction_mean": 7.070402026588131,
+          "prediction_max": 23.380306955574788
+        },
+        {
+          "seed": 101,
+          "backend": "numpy",
+          "final_training_mae": 2.223350778348937,
+          "prediction_mean": 7.05674814298816,
+          "prediction_max": 19.974306190202686
+        },
+        {
+          "seed": 137,
+          "backend": "numpy",
+          "final_training_mae": 2.2926728932405243,
+          "prediction_mean": 7.643985993790827,
+          "prediction_max": 22.20787358152507
+        }
+      ],
+      "ensemble_raw_mean": 5.759552183057944,
+      "ensemble_raw_max": 13.557481858918003,
+      "submission_mean": 5.756410256410256,
+      "submission_max": 14
+    }
+  },
+  "submission_sha256": "907c130f299824622dff2bd85ea502168dc8fff883005a04043c560f7720ae85"
+}

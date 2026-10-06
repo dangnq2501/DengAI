@@ -1,9 +1,43 @@
 # DengAI dengue forecasting
 
-This repository contains the confirmed city-specific tree solution for the
-DengAI competition. It achieved hidden-test MAE **22.5**.
+Final model: a multiscale-summary MLP with hidden-test MAE **16.6**
+(from 22.5 for the tree ensemble and 26.7 for the first baseline).
 
-## Model
+## Course notebooks (start here)
+
+The project report is a sequence of five notebooks in [`notebooks/`](notebooks/),
+one per grading item of [`project_guidelines.md`](project_guidelines.md):
+
+| Notebook | Rubric item |
+| --- | --- |
+| [`01_problem_and_data`](notebooks/01_problem_and_data.ipynb) | Problem and motivation; load with pandas, split X / y |
+| [`02_exploratory_analysis`](notebooks/02_exploratory_analysis.ipynb) | Seaborn EDA, each finding mapped to a decision |
+| [`03_preprocessing_and_features`](notebooks/03_preprocessing_and_features.ipynb) | Encoding, missing values, target, three feature sets |
+| [`04_validation_and_model_selection`](notebooks/04_validation_and_model_selection.ipynb) | Temporal CV, metric, baselines, trees, MLP, hyper-parameter search |
+| [`05_results_and_conclusions`](notebooks/05_results_and_conclusions.ipynb) | Error analysis, importance, submission, impact, conclusions |
+
+The notebooks import the small [`dengai/`](dengai/) package (data loading,
+features, models, validation), which runs without TensorFlow.
+[`tests/test_dengai_package.py`](tests/test_dengai_package.py) checks that it
+reproduces the original `src/` feature matrices and NumPy MLP exactly.
+
+Open them in Jupyter or VS Code with the `bkk` kernel and run all cells in order
+(notebook 05 reads the outputs of 04; 04 takes several minutes on a CPU), or
+execute all of them from the command line:
+
+```bash
+conda activate bkk
+python notebooks/run_all.py            # or e.g. `python notebooks/run_all.py 04 05`
+python -m unittest tests.test_dengai_package -v
+```
+
+Generated files (CV predictions, selected configuration, submission
+`submission_multiscale_mlp.csv`) are written to `notebooks/outputs/`.
+
+The sections below document the original experiment scripts in `src/`,
+`research/` and `research2/`. They are kept for reference.
+
+## Tree baseline model (22.5)
 
 - **Iquitos:** `RandomForestRegressor` trained on `log1p(total_cases)`.
 - **San Juan:** `ExtraTreesRegressor` using the Poisson split criterion.

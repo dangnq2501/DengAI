@@ -1,0 +1,86 @@
+{
+  "method": "feature_lag_mlp tuned reproduction",
+  "backend_requested": "numpy",
+  "backend_used": "numpy",
+  "tensorflow_available": false,
+  "final_seeds": [
+    17,
+    42,
+    73
+  ],
+  "tuned_configs": {
+    "sj": {
+      "hidden_1": 100,
+      "hidden_2": 25,
+      "dropout_1": 0.3,
+      "dropout_2": 0.7,
+      "learning_rate": 0.01
+    },
+    "iq": {
+      "hidden_1": 70,
+      "hidden_2": 18,
+      "dropout_1": 0.5,
+      "dropout_2": 0.5,
+      "learning_rate": 0.001
+    }
+  },
+  "cities": {
+    "sj": {
+      "candidate": "tuned_sj",
+      "final_runs": [
+        {
+          "seed": 17,
+          "backend": "numpy",
+          "final_training_mae": 6.330772180506085,
+          "prediction_mean": 29.92583445476661,
+          "prediction_max": 180.7473606382982
+        },
+        {
+          "seed": 42,
+          "backend": "numpy",
+          "final_training_mae": 6.840079353013483,
+          "prediction_mean": 25.209144859802187,
+          "prediction_max": 161.56836715067956
+        },
+        {
+          "seed": 73,
+          "backend": "numpy",
+          "final_training_mae": 8.023350335873436,
+          "prediction_mean": 25.771604238338647,
+          "prediction_max": 155.22182910720392
+        }
+      ],
+      "ensemble_prediction_mean": 26.476923076923075,
+      "ensemble_prediction_max": 161
+    },
+    "iq": {
+      "candidate": "tuned_iq",
+      "final_runs": [
+        {
+          "seed": 17,
+          "backend": "numpy",
+          "final_training_mae": 2.503278437887357,
+          "prediction_mean": 6.502664834580899,
+          "prediction_max": 20.88893507569763
+        },
+        {
+          "seed": 42,
+          "backend": "numpy",
+          "final_training_mae": 2.3844748644631375,
+          "prediction_mean": 5.251208012118604,
+          "prediction_max": 19.326100797659844
+        },
+        {
+          "seed": 73,
+          "backend": "numpy",
+          "final_training_mae": 2.1209849168940424,
+          "prediction_mean": 7.070402026588131,
+          "prediction_max": 23.380306955574788
+        }
+      ],
+      "ensemble_prediction_mean": 5.794871794871795,
+      "ensemble_prediction_max": 20
+    }
+  },
+  "submission_sha256": "af8ea1001a9474c1e96dc3bfee9a586afb47a8dfa574a7edb360ea01bb87d177"
+}

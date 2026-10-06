@@ -1,0 +1,14 @@
+{
+  "sj": {
+    "components": {
+      "seasonal_median": 1.0
+    },
+    "development_objective": 19.696050664910953
+  },
+  "iq": {
+    "components": {
+      "lgb_regression_l1_l7_n50": 1.0
+    },
+    "development_objective": 5.901558570734707
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "selection": {
+    "sj": "tuned_median",
+    "iq": "tuned_snapshots"
+  },
+  "audit_weighted_mae": {
+    "control": 20.127403846153847,
+    "candidate": 19.98798076923077
+  },
+  "relative_improvement": 0.006927027349814874,
+  "leaderboard_verified": false,
+  "note": "Audit is held out from this search, but historical architecture choices may have used these years."
+}

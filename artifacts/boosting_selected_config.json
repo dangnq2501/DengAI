@@ -1,0 +1,10 @@
+{
+  "iq": {
+    "candidate": "xgb_poisson_d2",
+    "boosting_weight": 0.2
+  },
+  "sj": {
+    "candidate": "cat_mae_d4",
+    "boosting_weight": 0.4
+  }
+}

@@ -1,0 +1,4 @@
+city,candidate,boosting_weight,n_predictions,mae
+iq,xgb_poisson_d2,0.2,312,6.862179487179487
+sj,cat_mae_d4,0.4,312,15.259615384615385
+all,city_specific,,624,11.060897435897436

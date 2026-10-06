@@ -1,0 +1,22 @@
+{
+  "backend": "numpy",
+  "seed": 42,
+  "cities": {
+    "sj": {
+      "spec": "baseline_180",
+      "method": "none",
+      "n_components": null,
+      "block_components": null,
+      "mean_mae": 11.28846153846154,
+      "selection_score": 11.796153846153848
+    },
+    "iq": {
+      "spec": "baseline_180",
+      "method": "none",
+      "n_components": null,
+      "block_components": null,
+      "mean_mae": 7.048076923076923,
+      "selection_score": 7.372115384615385
+    }
+  }
+}

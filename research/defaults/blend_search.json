@@ -1,0 +1,22 @@
+{
+  "note": "Placeholder until blend_search.py is run with TensorFlow. Pure tuned MLP, nearest rounding.",
+  "folds": 3,
+  "fold_weeks": 52,
+  "seeds": [42],
+  "mlp_weights": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+  "rounding_modes": ["nearest", "floor", "truncate"],
+  "cities": {
+    "sj": {
+      "mlp_weight": 1.0,
+      "rounding": "nearest",
+      "mean_mae": null,
+      "selection_score": null
+    },
+    "iq": {
+      "mlp_weight": 1.0,
+      "rounding": "nearest",
+      "mean_mae": null,
+      "selection_score": null
+    }
+  }
+}

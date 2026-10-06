@@ -1,0 +1,20 @@
+{
+  "seeds": [
+    42,
+    137,
+    2026
+  ],
+  "epochs": 40,
+  "steps": 200,
+  "backend": "pytorch-approximation",
+  "torch": "2.10.0",
+  "numpy": "2.4.2",
+  "pandas": "3.0.1",
+  "source_sha256": "03fb5b81b4167fa80b311ae96c9a65c747375651cf150d394dd511ca068e83c3",
+  "inputs": {
+    "dengue_features_test.csv": "4c1d9a4f4dbbe71292cbd31c0e5ad29220371aebabd7f1ed65e33fd027b2bea0",
+    "dengue_features_train.csv": "2d983a71d413fadd93a763a8f5928020283cd4d4abe4ca4bd951392034fd657f",
+    "dengue_labels_train.csv": "f70d52b747d46b58ae3778084130529bb07858d65967080ec76e31960e8f2fd2",
+    "submission_format.csv": "93748e7ed31478c6c239a3dd95dfe70aa733afc4d7e4c42236efb9d415099399"
+  }
+}
