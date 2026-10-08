@@ -10,6 +10,16 @@ __pycache__/
 .DS_Store
 *.log
 
+# LaTeX build intermediates (keep source and final PDF)
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.toc
+
+# Downloaded competition/vendor copies are not runtime dependencies
+vendors/
+
 # Local credentials
 .env
 .env.*
