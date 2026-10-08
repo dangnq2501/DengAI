@@ -74,7 +74,7 @@ The DengAI competition \cite{drivendata} frames this as a supervised regression 
   \item True case counts for the test period are unavailable, so \emph{previous cases cannot be used as predictors}; the model must forecast from climate history alone.
 \end{itemize}
 
-\paragraph{The story in one paragraph.}
+\paragraph{Executive Summary.}
 Our work was a sequence of failures and questions, each created by the previous result (Figure~\ref{fig:map}). Boosting won locally but lost on the hidden period, so we reduced tree variance. The resulting forest still missed outbreak peaks, so we stopped tuning the learner and inspected the time series. That investigation suggested delayed infection-cycle effects, which led to feature-specific climate histories. Those histories helped but were too large for only $1456$ rows, which led to multiscale compression and finally a small supervised PLS augmentation. The final two representation changes produced the largest gains.
 
 \begin{figure}[H]
@@ -159,8 +159,7 @@ Missing values are rare but not negligible: the training features contain $548$ 
 \end{figure}
 
 \subsection{Case counts have memory; climate memory is variable-specific}
-The autocorrelation of weekly cases (left of Figure~\ref{fig:memory}) decays over roughly $15$--$20$ weeks, much more slowly in San Juan than in Iquitos. This tells us that the system has temporal structure, but because case lags are unavailable at test time we use it only as a hint about how much \emph{climate} history to supply. A decision-tree screen that scored candidate history lengths of $3$ to $51$ weeks for each variable and city (right of Figure~\ref{fig:memory}) selected very different window lengths: for example $34$ weeks of relative humidity in San Juan but only $7$ in Iquitos.
-
+The autocorrelation of weekly cases (left of Figure~\ref{fig:memory}) decays over roughly $15$--$20$ weeks, much more slowly in San Juan than in Iquitos. To determine the relevant climate history, we screened candidate history lengths from $3$ to $51$ weeks. To ensure strict forecasting validity, we evaluated these lengths using the chronological expanding-window folds described in Section 5.1. A decision-tree screen scored the consecutive window $[x_{t-L+1},\ldots,x_t]$ for each length $L$. \key{As shown in Figure~\ref{fig:lag_heatmap}}, the resulting heatmap selected very different window lengths: for example $34$ weeks of relative humidity in San Juan but only $7$ in Iquitos.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/03_temporal_memory_patterns.png}
@@ -335,7 +334,7 @@ with $w\in\{0,0.1,\ldots,1.0\}$. Local validation selected $w=0.2$ with XGBoost 
 
 Trees capture non-linear thresholds (``warm \emph{and} humid after several wet weeks''), lags express delayed effects, rolling means express accumulated exposure, and Fourier terms express season. This reduced hidden MAE from $26.7$ to $22.5$. But the validation forecast in Figure~\ref{fig:valforecast} exposed the next problem: the forest followed the seasonal level while repeatedly cutting off the largest peaks.
 
-\subsubsection*{The failure that changed the project}
+\subsubsection*{Residual Analysis \& Feature Engineering}
 We inspected the largest absolute residuals week by week. Several outbreak weeks had a sudden increase in cases even though the weather in that same row was not unusually extreme. The model had learned an overly instantaneous mapping---``this week's weather predicts this week's cases''---while the real process includes mosquito development, viral incubation and reporting delays. A rainfall or humidity episode can therefore matter weeks before the observed case peak.
 
 \begin{figure}[H]
@@ -642,8 +641,8 @@ We forecast weekly dengue cases in two cities from climate history. The path was
 \section{Reproducibility}
 \begin{itemize}
   \item Data: DengAI training/test CSV files from the competition site.
-  \item Notebook \texttt{Main/reproduce\_best\_candidate.ipynb} rebuilds both city models, fits PLS inside the chronological validation fold, validates all $416$ submission rows, and prints a SHA-256 digest.
-  \item \texttt{requirements-reproduce.txt} records the versions used for the verified notebook execution.
+  \item \item \textbf{Code Repository:} The complete source code, trained models, and reproducible notebooks are available on GitHub at \url{https://github.com/dangnq2501/DengAI}.
+  \item \textbf{Presentation Video:} A recorded video of our project presentation can be viewed at \url{https://youtu.be/Et3oHyoi_VI}.
   \item The hidden MAE $15.9$ is a leaderboard observation. Exact byte-level reproduction is asserted only when the uploaded reference CSV is stored at the path documented by the notebook.
   \item Figures in this report were produced by the project's plotting scripts and notebooks and are included in the \texttt{figures/} folder.
 \end{itemize}
