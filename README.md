@@ -62,7 +62,7 @@ Python and NumPy versions affect the deterministic training trajectory. Use the 
 
 ```bash
 cd /path/to/DengAI
-pip install -r requirements-reproduce.txt
+pip install -r requirements.txt
 ```
 
 
