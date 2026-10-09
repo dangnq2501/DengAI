@@ -1,7 +1,0 @@
-fold_count,city,model,n_predictions,mae
-4,iq,random_forest_log,208,6.221153846153846
-4,sj,extra_trees_poisson,208,13.961538461538462
-4,all,city_specific_tree_ensemble,416,10.091346153846153
-6,iq,random_forest_log,312,7.060897435897436
-6,sj,extra_trees_poisson,312,15.724358974358974
-6,all,city_specific_tree_ensemble,624,11.392628205128204

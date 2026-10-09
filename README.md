@@ -1,380 +1,108 @@
-# DengAI dengue forecasting
+# DengAI — exact reproduction of the 15.9832 submission
 
-This repository documents the progression from a city-specific tree baseline
-to the current best DengAI model. The confirmed multiscale MLP achieved
-hidden-test MAE **16.6**; the earlier tree system achieved 22.5.
+This repository contains the final code, data, notebook, submission artifact, and report for our AI-7101 DengAI project. The canonical pipeline retrains the San Juan and Iquitos models and regenerates the exact 416-row CSV associated with a **15.9832 public leaderboard MAE**.
 
-## Current best model
+## Reproducibility claim
 
-- **Representation:** SJ uses 180 causal multiscale climate features; IQ keeps
-  the tuned 380-value raw feature-specific lag history.
-- **San Juan MLP:** `180 → 100 → 25 → 1`, dropout `0.30 → 0.70`.
-- **Iquitos MLP:** `380 → 70 → 18 → 1`, dropout `0.50 → 0.50`.
-- **Training:** MAE loss, RMSprop, seed 42, separate model per city.
-- **Hidden-test result:** **16.6 MAE**.
+DrivenData does not publish the hidden test labels, so the public MAE cannot be recalculated locally. We therefore use an artifact-level acceptance test:
 
-## Tree baseline
+1. retrain both city models from the provided competition training data;
+2. generate all 416 test predictions in the official row order;
+3. compare every prediction with the restored scored submission; and
+4. require an exact SHA-256 match.
 
-- **Iquitos:** `RandomForestRegressor` trained on `log1p(total_cases)`.
-- **San Juan:** `ExtraTreesRegressor` using the Poisson split criterion.
-- **Features:** seasonal harmonics, raw climate measurements, NDVI summaries,
-  temperature interactions, 1–16 week climate lags, and trailing climate means.
-- **Validation:** expanding annual folds without shuffled rows.
 
-Case-count lags are intentionally excluded because true prior test labels are
-not available through the multi-year forecast horizon.
 
-## Project structure
+The refactored pipeline produces **0 differing rows out of 416**. It also reproduces the reported 52-week San Juan holdout MAE of **16.519**.
 
-```text
-DengAI/
-├── data/                         # Supplied competition data
-├── src/train_tree_ensemble.py   # Complete training and prediction pipeline
-├── tests/test_pipeline.py       # Data, feature, model, and submission checks
-├── artifacts/
-│   ├── submission_tree_ensemble.csv
-│   ├── tree_validation_scores.csv
-│   ├── tree_validation_predictions.csv
-│   ├── tree_ensemble_models.joblib
-│   ├── submission_tree_tuned.csv
-│   ├── tree_tuning_results.csv
-│   └── tree_tuning_best_params.json
-├── requirements.txt
-└── README.md
-```
+## Final model
 
-## Setup
+The final submission is city-specific because San Juan and Iquitos have different target distributions and respond differently to temporal representations.
 
-The best neural model is locked to Python 3.11 and the package versions in
-`uv.lock`. From this directory, create the environment with:
+| City | Representation | Model | Integer conversion |
+|---|---|---|---|
+| San Juan (`sj`) | 180 multiscale features: 11 summaries for each of 16 weather variables plus 4 seasonal harmonics | NumPy MLP `180 → 100 → 25 → 1`, SELU, dropout `0.3/0.7`, learning rate `0.01`, seed 42 | clip at zero, then round to nearest |
+| Iquitos (`iq`) | 380 feature-specific raw lag values | NumPy MLP `380 → 70 → 18 → 1`, SELU, dropout `0.5/0.5`, learning rate `0.001`, seed 42 | clip at zero, then truncate |
 
-```bash
-uv sync
-uv run python -c "import tensorflow as tf; print(tf.__version__)"
-```
+Both models use MAE/L1 optimization, RMSprop-style updates, gradient clipping, 40 epochs, 200 update steps per epoch, and batch size 16.
 
-The second command should print `2.16.2`. To run the optional tree and plotting
-workflows in the same environment, use:
+### Preprocessing contract
 
-```bash
-uv sync --extra trees --extra plots
-```
+- Numeric missing values are filled with the historical linear-interpolation rule used by the scored pipeline.
+- The 16 weather variables are z-score normalized using the stored San Juan-based normalization procedure.
+- `weekofyear` is min-max scaled.
+- San Juan multiscale features summarize 2, 4, 8, 13, 26, and 52-week levels, 4/13-week variability, a short-versus-long gap, a 13-week trend, and annual/semi-annual seasonality.
+- Iquitos uses a separately selected contiguous history length for each feature; the lengths sum to 380 inputs.
+- The original 53-row context/alignment behavior is preserved intentionally because changing it changes the scored artifact.
 
-### Reproduce the best 16.6 submission
+PLS was investigated after this submission was created. It is **not** part of the hash-verified 15.9832 pipeline.
 
-The winner is a city hybrid: SJ uses multiscale summaries and IQ uses the tuned
-raw-lag representation. Rebuild both models from the raw competition data with:
-
-```bash
-uv run src/train_best_submission.py --seed 42 --verbose 2
-```
-
-The competition file is:
+## Repository structure
 
 ```text
-artifacts/submission_feature_lag_mlp_multiscale_summaries_seed42_sj_only.csv
+.
+├── reproduce_submission.py          # canonical one-command entry point
+├── src/dengai_reproduction/
+│   ├── __init__.py
+│   └── pipeline.py                  # preprocessing, features, MLPs, verification
+├── requirements-reproduce.txt       # pinned numerical environment
+├── data/                            # official DengAI train/test/template CSVs
+├── artifacts/                       # scored reference used by the automated test
+├── notebook/final_submission.ipynb      # clean training-to-submission notebook
+├── Report/main.pdf
+├── SUBMISSION_MANIFEST.txt
+└── package_submission.py
 ```
 
-For the locked macOS ARM reproduction, its expected SHA-256 is:
+`reproduce_submission.py` and `src/dengai_reproduction/pipeline.py` are the final implementation. `notebook/final_submission.ipynb` is the course-facing notebook: it trains both models, validates the official format, and writes a CSV ready for upload.
+
+## Environment setup
+
+Python and NumPy versions affect the deterministic training trajectory. Use the pinned environment exactly.
+
+```bash
+cd /path/to/DengAI
+pip install -r requirements.txt
+```
+
+
+## Reproduce the final submission
+
+```bash
+.venv-reproduce/bin/python reproduce_submission.py --validate-holdout
+```
+
+Generated file:
 
 ```text
-0a2eb63b608ba88e2f30d42314a9443a1b73caaebf310890d14aec24f2645492
+notebook/outputs/submission.csv
 ```
 
-`src/train_feature_lag_mlp_representation.py` instead trains multiscale inputs
-for **both** cities. That is an ablation and scores about 18.8, not 16.6.
+The restored scored file is:
 
-`src/train_feature_lag_mlp.py` is a different entry point: it trains the older
-raw feature-specific lag representation. Its default `improved` profile is the
-19.1-era configuration, not the final 16.6 model. The 18.8 raw-lag control can
-be rebuilt explicitly with:
+```text
+artifacts/submission_feature_lag_mlp_best_candidate.csv
+```
+
+`cmp` should print nothing and both hashes should equal the expected digest.
+
+## Generate the submission from the final notebook
+
+The final notebook trains both city models from the competition data and creates `notebook/outputs/submission.csv`:
 
 ```bash
-uv run src/train_feature_lag_mlp.py --profile tuned --seed 42
+.venv-reproduce/bin/python -m jupyter execute \
+  --inplace \
+  --kernel_name=python3 \
+  notebook/final_submission.ipynb
 ```
 
-The older manual virtual-environment instructions remain available in
-`requirements-tf.txt`, but do not mix that `.venv-tf` environment with the
-locked `uv` environment.
 
-## Train and validate
+The archive includes the executable source, pinned requirements, test, competition data, verification artifact, executed final notebook, upload-ready `submission.csv`, final report PDF, and presentation-video link. Local environments, caches, LaTeX temporary files, reproduction-only notebooks, research branches, and unrelated exploratory files are excluded.
 
-```bash
-../../.venv/bin/python src/train_tree_ensemble.py
-```
+## Limitations
 
-For a faster final-model rebuild without temporal backtesting:
-
-```bash
-../../.venv/bin/python src/train_tree_ensemble.py --skip-backtest
-```
-
-The competition-ready output is:
-
-[`artifacts/submission_tree_ensemble.csv`](artifacts/submission_tree_ensemble.csv)
-
-This confirmed 22.5-MAE file is kept unchanged. A normal rebuild is written to
-`submission_tree_ensemble_2.csv` so that it cannot accidentally replace the
-confirmed submission.
-
-Expected prediction distributions with the default seed and 500 trees:
-
-| City | Mean | Maximum |
-| --- | ---: | ---: |
-| Iquitos | 6.14 | 16 |
-| San Juan | 32.17 | 99 |
-
-## Conservative hyperparameter tuning
-
-Run the city-specific chronological grid search with:
-
-```bash
-../../.venv/bin/python src/train_tree_ensemble.py \
-  --tune \
-  --tuning-estimators 200 \
-  --n-estimators 500
-```
-
-The search uses four expanding one-year validation folds plus a recent holdout
-whose length matches each city's competition-test horizon. It rejects settings
-that materially reduce the validation prediction mean or peak, which helps
-avoid selecting the overly smooth San Juan models seen in earlier experiments.
-No shuffled K-fold validation is used.
-
-Tuning writes separate files and never replaces the confirmed submission:
-
-- `tree_tuning_results.csv`: every candidate and its validation metrics.
-- `tree_tuning_best_params.json`: selected parameters by city.
-- `tree_tuned_validation_scores.csv` and
-  `tree_tuned_validation_predictions.csv`: full expanding-fold diagnostics.
-- `submission_tree_tuned.csv` and `tree_tuned_models.joblib`: final candidate.
-
-Use fewer trees for a quick search, then keep 500 trees for final fitting:
-
-```bash
-../../.venv/bin/python src/train_tree_ensemble.py \
-  --tune --tuning-estimators 50 --n-estimators 500
-```
-
-## San Juan negative-binomial experiment
-
-The SJ target is an overdispersed case count, so a regularized NB2 regression
-can be tested as a small addition to Extra Trees. The experiment selects its
-regularization, dispersion scale, and blend weight on six expanding annual
-folds. A zero NB weight is included as an automatic Extra Trees fallback.
-
-```bash
-../../.venv/bin/python src/train_sj_nb_ensemble.py --n-estimators 500
-```
-
-This produces `sj_nb_search_results.csv`, `sj_nb_validation_predictions.csv`,
-`sj_nb_selected_config.json`, and the separate candidate submission
-`submission_tree_sj_nb.csv`. It does not replace the confirmed submission.
-
-## San Juan EGARCH-X experiment
-
-ARCH/GARCH models changing forecast-error variance rather than the nonlinear
-case-count mean. The EGARCH-X experiment therefore keeps Extra Trees as the
-mean model and tests whether temperature, rainfall, humidity, and past shocks
-identify high-risk residual regimes that justify a point-prediction correction.
-
-```bash
-../../.venv/bin/python src/train_sj_garchx_ensemble.py --n-estimators 500
-```
-
-The first two annual folds supply residual history. The final four folds select
-between the unchanged tree, a historical-bias correction, and climate-aware
-volatility corrections. Outputs use the `sj_garchx_` prefix and the confirmed
-submission is never overwritten.
-
-## CatBoost and XGBoost experiment
-
-The boosting experiment compares shallow CatBoost and XGBoost models using MAE
-and Poisson objectives. Every candidate is tested alone and as a city-specific
-blend with the confirmed tree. Four chronological annual folds select the
-configuration; six folds provide the final report. Outbreak and prediction-
-amplitude guards keep over-smoothed candidates from being selected.
-
-```bash
-../../.venv/bin/python src/train_boosting_ensemble.py \
-  --iterations 500 --n-estimators 500
-```
-
-Results are written to `boosting_search_results.csv`,
-`boosting_validation_scores.csv`, `boosting_validation_predictions.csv`, and
-the separate `submission_tree_boosting.csv` candidate.
-
-## Climate feature-engineering experiment
-
-This experiment retains the confirmed forests and searches leakage-safe feature
-groups: temperature suitability, accumulated rain, warm/wet interactions,
-vapor-pressure deficit, past-only seasonal anomalies, weather changes, rolling
-variability, and exponential weather memory. A compact biological feature set
-also tests whether removing redundant climate lags helps.
-
-```bash
-../../.venv/bin/python src/train_feature_engineering.py \
-  --search-estimators 200 --n-estimators 500
-```
-
-Selection combines six-fold MAE, recent four-fold MAE, fold stability, outbreak
-MAE, and prediction-amplitude guards. The candidate is written separately as
-`submission_tree_features.csv`.
-
-## San Juan recency ensemble
-
-This experiment matches SJ's 260-week competition horizon at six expanding
-origins. It compares the confirmed full-history Extra Trees model with 7-, 10-,
-and 12-year windows, exponential half-lives of 3–12 years, and conservative
-full-history/recency blends. Candidate selection uses SJ MAE only; city weights
-are used only when reporting an estimated complete-submission score.
-
-```bash
-../../.venv/bin/python src/train_sj_recency_ensemble.py \
-  --search-estimators 300 --n-estimators 500
-```
-
-The separate candidate is `submission_tree_sj_recency.csv`.
-
-## San Juan quantile Extra Trees
-
-The quantile experiment keeps the confirmed Extra Trees estimator but replaces
-part of its across-tree mean with a tuned tree-prediction quantile. This better
-matches the competition's MAE objective while preserving the original model as
-a zero-weight fallback. Selection must improve both annual and 260-week
-validation and pass recent-outbreak guards.
-
-```bash
-../../.venv/bin/python src/train_sj_quantile_forest.py --n-estimators 500
-```
-
-The separate output is `submission_tree_sj_quantile.csv`.
-
-## Nested SJ validation
-
-The nested evaluator prevents each 260-week outer pseudo-test from influencing
-its own model selection. For every outer cutoff, it selects among the original
-tree, fixed recency variants, and quantile variants using only fully completed
-earlier 260-week blocks. It then evaluates that frozen selection on the outer
-period. Candidate selection is based only on SJ; competition city weights are
-used only for final score reporting.
-
-```bash
-../../.venv/bin/python src/nested_validate_sj.py --n-estimators 500
-```
-
-Review `sj_nested_outer_results.csv` before considering the separate
-`submission_tree_sj_nested.csv` candidate.
-
-## Nested smooth-transition forest
-
-The STAR-inspired SJ experiment trains normal- and outbreak-regime Extra Trees
-experts. A climate-only Extra Trees classifier provides a smooth transition
-probability using temperature, humidity, precipitation, seasonality, and their
-lags. No previous case labels are required during the forecast horizon. The
-same nested 260-week outer acceptance rule determines whether it may replace
-the original SJ tree. Inner selection optimizes the competition's overall MAE;
-outbreak MAE is reported separately and enforced as an aggregate outer-window
-safety check.
-
-```bash
-../../.venv/bin/python src/nested_validate_sj_star.py --n-estimators 500
-```
-
-The current 500-tree run selected `star__q75_dw25__w1`: it improved three of
-four recent outer windows and reduced their mean SJ MAE from 31.21 to 30.02.
-Its separate output is `submission_tree_sj_star.csv`; detailed decisions are in
-`sj_star_outer_results.csv`, `sj_star_final_search.csv`, and
-`sj_star_summary.json`.
-
-### Self-contained feature-specific lag MLP
-
-The canonical implementation is the readable package in
-[`src/feature_lag_mlp/`](src/feature_lag_mlp/). The feature-specific lag windows,
-preprocessing, model, training, temporal validation, and search space are split
-by responsibility; the two top-level scripts are only command-line entry
-points.
-
-Start with the complete
-[`docs/feature_lag_mlp_workflow.md`](docs/feature_lag_mlp_workflow.md) guide. It
-maps each pipeline stage to code, explains the data patterns and historical
-alignment/normalization choices, and documents the validation and error
-analysis used for tuning. `src/visualize_feature_lag_mlp.py` turns the same raw
-data and confirmation tables into four presentation-ready diagnostic figures.
-
-For the chronological reasoning from the 22.5 tree baseline, through the
-feature-specific lag search, to the final 16.6 multiscale representation, read
-[`docs/from_trees_and_lags_to_multiscale_mlp.md`](docs/from_trees_and_lags_to_multiscale_mlp.md).
-
-Train the confirmed improved configuration:
-
-```bash
-.venv-tf/bin/python src/train_feature_lag_mlp.py --profile improved --seed 42
-```
-
-Train the reference configuration for comparison:
-
-```bash
-.venv-tf/bin/python src/train_feature_lag_mlp.py --profile reference --seed 42
-```
-
-Validate preprocessing and matrix shapes without loading TensorFlow:
-
-```bash
-.venv-tf/bin/python src/train_feature_lag_mlp.py --prepare-only
-```
-
-The profile preserves the feature representation and city-specific
-hidden widths. It changes only San Juan dropout from `0.5, 0.5` to `0.3, 0.7`;
-Iquitos remains at `0.5, 0.5`.
-
-Tune the same three-Dense-layer model using expanding temporal folds:
-
-```bash
-.venv-tf/bin/python src/tune_feature_lag_mlp.py
-```
-
-The tuner searches city-specific hidden widths, two dropout rates, and learning
-rate. It confirms the leading candidates over three annual folds and three
-seeds, always including the 19.1 configuration as the control. Final prediction
-now defaults to seed 42: it scored **18.8 MAE**, while averaging seeds 17, 42,
-and 73 scored 19.5. The ensemble can still be reproduced explicitly with
-`--final-seeds 17,42,73`.
-
-The completed search selected a narrower second hidden layer for both cities:
-`100 → 25` for San Juan and `70 → 18` for Iquitos. Competition-weighted
-temporal validation improved from 16.827 for the 19.1 control to 15.862. See
-`artifacts/feature_lag_mlp_tuning_report.md` for the local and leaderboard
-comparisons.
-
-A separate controlled robustness screen tested feature-block climate-noise
-augmentation and a regularized linear skip branch. Neither beat the unchanged
-18.8 model on temporal MAE, so both remain optional experiments. Run it with
-`src/experiment_feature_lag_mlp_robustness.py`; see
-`artifacts/feature_lag_mlp_robustness_report.md` for the results.
-
-The stronger representation experiment compresses each climate series into
-causal multiscale levels, variability, trends, and cyclic seasonality. It
-improves the three-fold, three-seed weighted local MAE from 15.862 to 13.924.
-The SJ-only file `submission_feature_lag_mlp_multiscale_summaries_seed42_sj_only.csv`
-scored **16.6 hidden-test MAE**, improving the previous 18.8 champion by 2.2.
-
-Retuning the MLP for the compressed 180-value input selected a narrower
-`48 → 12` network, but its confirmed local gain is only 0.224 MAE and its
-outbreak error is slightly worse. The resulting
-`submission_feature_lag_mlp_multiscale_architecture_seed42_sj_only.csv` scored
-**18.1 MAE**, confirming that the apparent local gain was validation noise.
-Keep the original `100 → 25` SJ architecture for this representation. The
-both-city multiscale submission scored about **18.8**, so IQ must remain on its
-tuned raw-lag representation. Run the controlled screen with
-`src/tune_multiscale_feature_lag_mlp.py`; see
-`artifacts/feature_lag_mlp_representation_report.md` for the evidence.
-
-## Tests
-
-```bash
-../../.venv/bin/python -m unittest discover -s tests -v
-```
-
-The pipeline validates input keys, chronology, past-only feature construction,
-model types, and final submission integrity.
+- The 15.9832 value is the observed public leaderboard score; hidden labels are not available for local evaluation.
+- Exact artifact reproduction requires Python 3.12.x, NumPy 2.4.4, and pandas 3.0.2.
+- The preserved context/alignment behavior is required for artifact identity but should receive an additional causal audit before claiming prospective public-health forecasting performance.
+- Results cover only San Juan and Iquitos and should not be assumed to transfer to other cities.
