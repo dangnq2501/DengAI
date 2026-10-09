@@ -20,7 +20,7 @@ dist/
 
 # Downloaded competition/vendor copies are not runtime dependencies
 vendors/
-
+artifacts/
 # Local credentials
 .env
 .env.*
