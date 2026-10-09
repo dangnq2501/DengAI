@@ -48,13 +48,13 @@ PLS was investigated after this submission was created. It is **not** part of th
 ├── requirements-reproduce.txt       # pinned numerical environment
 ├── data/                            # official DengAI train/test/template CSVs
 ├── artifacts/                       # scored reference used by the automated test
-├── Main/final_submission.ipynb      # clean training-to-submission notebook
+├── notebook/final_submission.ipynb      # clean training-to-submission notebook
 ├── Report/main.pdf
 ├── SUBMISSION_MANIFEST.txt
 └── package_submission.py
 ```
 
-`reproduce_submission.py` and `src/dengai_reproduction/pipeline.py` are the final implementation. `Main/final_submission.ipynb` is the course-facing notebook: it trains both models, validates the official format, and writes a CSV ready for upload.
+`reproduce_submission.py` and `src/dengai_reproduction/pipeline.py` are the final implementation. `notebook/final_submission.ipynb` is the course-facing notebook: it trains both models, validates the official format, and writes a CSV ready for upload.
 
 ## Environment setup
 
@@ -75,7 +75,7 @@ pip install -r requirements-reproduce.txt
 Generated file:
 
 ```text
-Main/outputs/submission.csv
+notebook/outputs/submission.csv
 ```
 
 The restored scored file is:
@@ -88,13 +88,13 @@ artifacts/submission_feature_lag_mlp_best_candidate.csv
 
 ## Generate the submission from the final notebook
 
-The final notebook trains both city models from the competition data and creates `Main/outputs/submission.csv`:
+The final notebook trains both city models from the competition data and creates `notebook/outputs/submission.csv`:
 
 ```bash
 .venv-reproduce/bin/python -m jupyter execute \
   --inplace \
   --kernel_name=python3 \
-  Main/final_submission.ipynb
+  notebook/final_submission.ipynb
 ```
 
 
