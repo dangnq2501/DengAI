@@ -37,9 +37,10 @@
 
 \newcommand{\MAE}{\mathrm{MAE}}
 \newcommand{\key}[1]{\textbf{\color{teal}#1}}
+\newcommand{\submissionhash}{\texttt{b276c071224e0dab0bf9a875bb5496107}\allowbreak\texttt{de28c7c539c0bcd64aa4465fc08b8fd}}
 
 \title{\vspace{-1cm}\textbf{Predicting Weekly Dengue Cases from Climate History}\\[4pt]
-\large Why changing the representation of time beat adding model depth\\[2pt]
+% \large Why changing the representation of time beat adding model depth\\[2pt]
 \normalsize DengAI competition -- final project report}
 \author{Duy Chien Nguyen \and Dang Quy Nguyen}
 \date{October 2026}
@@ -49,7 +50,15 @@
 
 \begin{abstract}
 \noindent
-Dengue is a mosquito-borne disease whose weekly case counts depend on weather that happened weeks or months earlier. In the DengAI competition we forecast weekly cases for San Juan (Puerto Rico) and Iquitos (Peru) from climate and vegetation measurements. This report is the record of an iterative investigation rather than a description of one final model. XGBoost and CatBoost first looked stronger than a forest on training and chronological validation, yet the hidden leaderboard reversed that ranking. That failure led us to a lower-variance, city-specific $500$-tree system with at least five samples per leaf ($22.5$ hidden MAE), and then to the more important discovery that all tree models were missing outbreak peaks. We traced the problem to delayed climate effects, selected feature- and city-specific history windows, compressed their $461/380$ raw MLP inputs into $180$ stable multiscale summaries, and finally appended four Partial Least Squares (PLS) scores for San Juan. Hidden MAE improved from $26.7$ to $22.5$, $18.8$, $16.6$, and finally $\mathbf{15.9}$. The main result is not merely the score: careful error analysis and a better representation of time were more valuable than additional model complexity.
+Dengue is a mosquito-borne disease whose weekly case counts depend on weather that happened weeks or months earlier. In the DengAI competition we forecast weekly cases for San Juan (Puerto Rico) and Iquitos (Peru) from climate and vegetation measurements. This report is the record of an iterative investigation rather than a description of one final model. XGBoost and CatBoost first looked stronger than a forest on training and chronological validation, yet the public leaderboard reversed that ranking. That failure led us to a lower-variance, city-specific $500$-tree system with at least five samples per leaf ($22.5$ public leaderboard MAE), and then to the more important discovery that all tree models were missing outbreak peaks. We traced the problem to delayed climate effects, selected feature- and city-specific history windows, and compressed the $461$-input San Juan history into $180$ stable multiscale summaries. The final submission combines that San Juan model with the preserved $380$-input Iquitos raw-history model and round-to-nearest post-processing. Public leaderboard MAE improved from $26.7$ to $22.5$, $18.8$, $16.6$, and finally $\mathbf{15.9832}$. Exact reproduction of all $416$ submitted predictions and their SHA-256 hash establishes which recipe produced the score. Our results highlight the importance of temporal
+feature engineering: compact, multiscale climate
+representations improved the performance of a fixed
+MLP architecture, while city-specific model selection
+preserved the representation that worked best for each
+city. These findings suggest that designing
+informative input representations can be more
+effective than increasing network complexity
+for small climate-based prediction datasets.
 \end{abstract}
 
 \tableofcontents
@@ -75,7 +84,7 @@ The DengAI competition \cite{drivendata} frames this as a supervised regression 
 \end{itemize}
 
 \paragraph{Executive Summary.}
-Our work was a sequence of failures and questions, each created by the previous result (Figure~\ref{fig:map}). Boosting won locally but lost on the hidden period, so we reduced tree variance. The resulting forest still missed outbreak peaks, so we stopped tuning the learner and inspected the time series. That investigation suggested delayed infection-cycle effects, which led to feature-specific climate histories. Those histories helped but were too large for only $1456$ rows, which led to multiscale compression and finally a small supervised PLS augmentation. The final two representation changes produced the largest gains.
+Our work was a sequence of failures and questions, each created by the previous result (Figure~\ref{fig:map}). Boosting won locally but lost on the hidden period, so we reduced tree variance. The resulting forest still missed outbreak peaks, so we stopped tuning the learner and inspected the time series. That investigation suggested delayed infection-cycle effects, which led to feature-specific climate histories. Those histories helped but were too large for only $1456$ rows, which led to multiscale compression. The final step was disciplined selection and verification: keep multiscale summaries for San Juan, retain raw histories for Iquitos, use the validated rounding rule, and archive the exact file and software environment.
 
 \begin{figure}[H]
 \centering
@@ -84,11 +93,11 @@ Our work was a sequence of failures and questions, each created by the previous 
   stepbox/.style={rectangle,rounded corners=3pt,draw=teal,fill=teal!8,thick,minimum width=2.15cm,minimum height=1.35cm,align=center,font=\scriptsize},
   arr/.style={-{Stealth[length=2.5mm]},thick,slate}]
 \node[stepbox] (a) {\textbf{1 Compare}\\Boosting wins\\local validation};
-\node[stepbox,right=of a] (b) {\textbf{2 Generalise}\\Forests win\\hidden test};
+\node[stepbox,right=of a] (b) {\textbf{2 Generalise}\\Forests win\\public leaderboard };
 \node[stepbox,right=of b] (c) {\textbf{3 Diagnose}\\Missed outbreak\\peaks};
 \node[stepbox,right=of c] (d) {\textbf{4 Add memory}\\Feature-specific\\histories};
 \node[stepbox,right=of d] (e) {\textbf{5 Compress}\\Multiscale\\summaries};
-\node[stepbox,right=of e,fill=ember!12,draw=ember] (f) {\textbf{6 Supervise}\\Append four\\PLS scores};
+\node[stepbox,right=of e,fill=ember!12,draw=ember] (f) {\textbf{6 Verify}\\City hybrid +\\exact file hash};
 \foreach \x/\y in {a/b,b/c,c/d,d/e,e/f} \draw[arr] (\x)--(\y);
 \end{tikzpicture}
 \caption{The experiment map. A disappointing result or visible failure mode triggered each next experiment.}
@@ -110,7 +119,7 @@ We load the three CSV files with \texttt{pandas}: features, labels, and the test
 & \textbf{San Juan (SJ)} & \textbf{Iquitos (IQ)}\\
 \midrule
 Training weeks & 936 & 520\\
-Test weeks (hidden) & 260 & 156\\
+Test weeks (public) & 260 & 156\\
 Training period & 1990--2008 & 2000--2010\\
 Median weekly cases & 19 & 5\\
 Mean weekly cases & 34.2 & 7.6\\
@@ -159,7 +168,56 @@ Missing values are rare but not negligible: the training features contain $548$ 
 \end{figure}
 
 \subsection{Case counts have memory; climate memory is variable-specific}
-The autocorrelation of weekly cases (left of Figure~\ref{fig:memory}) decays over roughly $15$--$20$ weeks, much more slowly in San Juan than in Iquitos. To determine the relevant climate history, we screened candidate history lengths from $3$ to $51$ weeks. To ensure strict forecasting validity, we evaluated these lengths using the chronological expanding-window folds described in Section 5.1. A decision-tree screen scored the consecutive window $[x_{t-L+1},\ldots,x_t]$ for each length $L$. \key{As shown in Figure~\ref{fig:lag_heatmap}}, the resulting heatmap selected very different window lengths: for example $34$ weeks of relative humidity in San Juan but only $7$ in Iquitos.
+Figure~\ref{fig:memory} illustrates two
+important characteristics of dengue incidence
+and climate history.
+
+First, the autocorrelation of weekly dengue cases
+decreases gradually over approximately 15--20 weeks,
+with stronger temporal persistence in San Juan
+than in Iquitos.
+
+This suggests that dengue incidence is not
+independent across weeks and motivates
+investigating historical climate information.
+
+Second, different weather variables appear
+to require different history lengths.
+
+To investigate this, we considered candidate
+history windows ranging from 3 to 51 weeks
+for each weather variable and city.
+
+For a variable $v$, a window of length $L$
+contains consecutive observations:
+
+\begin{equation}
+\mathbf{x}_{t}^{(v,L)}
+=
+[x_{t-L+1}^{(v)}, \ldots, x_t^{(v)}].
+\end{equation}
+
+A decision-tree screening procedure was used
+to compare candidate window lengths.
+
+However, the original screening employed
+ordinary ten-fold validation rather than
+strictly chronological folds. Therefore,
+the selected lengths should be interpreted
+as exploratory feature-engineering choices,
+not unbiased estimates of optimal
+forecasting horizons.
+
+The results suggest that useful climate
+history differs across variables and cities.
+
+For example, the selected relative-humidity
+history was 34 weeks for San Juan but only
+7 weeks for Iquitos.
+
+These observations motivated the
+city-specific historical representations
+investigated in Section~6.3.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/03_temporal_memory_patterns.png}
@@ -232,13 +290,13 @@ The boosting targets were the observed case counts: Poisson candidates enforced 
   \item a $13$-week trend, $\bigl(x_t-x_{t-12}\bigr)/12$ (direction and rate of change);
   \item $\sin,\cos$ of $2\pi\,\mathrm{week}/52$ and of $4\pi\,\mathrm{week}/52$ (cyclic seasonality).
 \end{enumerate}
-The size is $16\times 11+4=\mathbf{180}$ inputs. The final San Juan model appends four PLS scores, giving $184$ inputs; the final Iquitos model retains its $380$ raw-lag inputs.
+The size is $16\times 11+4=\mathbf{180}$ inputs. The final San Juan model uses these $180$ inputs; the final Iquitos model retains its $380$ raw-lag inputs.
 
 %--------------------------------------------------------------------
 \section{Validation protocol and metric}
 %--------------------------------------------------------------------
 \subsection{Why chronological validation}
-A random split places neighbouring outbreak weeks on both sides of the split. The model can then ``interpolate'' an outbreak from adjacent weeks that would never be available in a real forecast, giving an optimistic score. The hidden test period lies strictly after the training period, so validation must have the same direction.
+A random split places neighbouring outbreak weeks on both sides of the split. The model can then ``interpolate'' an outbreak from adjacent weeks that would never be available in a real forecast, giving an optimistic score. The public test period lies strictly after the training period, so validation must have the same direction.
 
 We use \key{expanding-window folds}: fold $k$ trains on all weeks before a cut point and is evaluated on the next $52$ weeks (Figure~\ref{fig:cv}). All preprocessing that learns from data (imputation, scaling, any projection) is fitted inside the training window of each fold.
 
@@ -262,9 +320,57 @@ We use \key{expanding-window folds}: fold $k$ trains on all weeks before a cut p
 \label{fig:cv}
 \end{figure}
 
+\subsection{Information availability and forecasting assumptions}
+
+Let $t$ denote the target week and
+$\mathcal{I}_t$ denote the information
+available when the prediction is issued.
+
+A valid prospective forecasting pipeline
+must construct every predictor from
+information available at that time:
+
+\begin{equation}
+\hat{y}_t = f(\mathcal{I}_t).
+\end{equation}
+
+In the DengAI benchmark, weather features
+are provided for the prediction period.
+Our competition experiments use these
+supplied climate measurements.
+
+However, access to climate observations
+for the target week is not equivalent to
+having those measurements available before
+the week begins.
+
+Therefore, the benchmark performance
+should be interpreted as climate-conditioned
+case prediction unless the operational
+availability of the weather measurements
+is independently established.
+
+A prospective forecasting evaluation would
+require a defined forecast issuance time and
+appropriate historical observations or
+weather forecasts available at that time.
+
 \subsection{Metric}
 We use MAE because it is the competition metric and is less dominated by single extreme weeks than squared error. We report three numbers per configuration: the \emph{mean} MAE across folds, the \emph{worst-fold} MAE (stability), and the \emph{outbreak-week} MAE (the weeks that matter most for public health). The same folds are used for every model so that differences measure the model and not the split.
+\begin{equation}
+\mathrm{MAE}_{\mathrm{outbreak},c}
+=
+\frac{1}{|\mathcal{O}_c|}
+\sum_{t\in\mathcal{O}_c}
+|y_t-\hat{y}_t|,
+\end{equation}
+where $\mathcal{O}_c$ denotes the set of
+validation weeks classified as outbreaks
+for city $c$.
 
+The outbreak threshold is defined using
+the training data and held fixed when
+evaluating the corresponding validation fold.
 \subsection{Baselines}
 Figure~\ref{fig:baseline} compares a historical-mean predictor, a week-of-year climatology (the median or mean for that calendar week) and a tuned tree ensemble on the same $312$ weeks per city. Climatology is very hard to beat in Iquitos ($6.8$ vs.\ $7.1$ for the trees), whereas in San Juan climate features cut the error from $25.1$ to $15.7$. Figure~\ref{fig:valforecast} shows why San Juan is difficult: climatology predicts a smooth seasonal hump every year, while actual outbreaks are irregular.
 
@@ -305,7 +411,7 @@ Selected boosted blend & \textbf{9.788} & \textbf{11.061} & Worse than forest; r
 
 The leaderboard reversed the local ranking: the simpler forest submission generalized better. We cannot prove whether this was ordinary model-selection overfitting, temporal distribution shift, or both, because the hidden labels are unavailable. The important engineering conclusion was operational: a small local MAE advantage on a few dependent time folds was not enough evidence to trust a more adaptive model. This changed our selection rule from ``take the lowest validation mean'' to ``also inspect fold variance, peak amplitude and behaviour on a test-length horizon.''
 
-\subsection{Stage 1: lower-variance forest ensembles (hidden MAE $22.5$)}
+\subsection{Stage 1: lower-variance forest ensembles (public leaderboard MAE $22.5$)}
 \label{sec:foreststage}
 We next focused on variance. Random Forest fits trees to bootstrap samples and random feature subsets. Extra Trees goes further: for candidate features it randomizes the split thresholds before choosing a split. This extra randomisation makes the individual trees less similar. If $T$ trees have variance $\sigma^2$ and average pairwise correlation $\rho$, the variance of their average is approximately
 \begin{equation}
@@ -330,9 +436,8 @@ We also tested explicit forest--boosting blends,
 \begin{equation}
 \hat y=(1-w)\hat y_{\mathrm{forest}}+w\hat y_{\mathrm{boost}},
 \end{equation}
-with $w\in\{0,0.1,\ldots,1.0\}$. Local validation selected $w=0.2$ with XGBoost for Iquitos and $w=0.4$ with CatBoost for San Juan. Those blends are the second row of Table~\ref{tab:rankingflip}; because their hidden result was worse, they were experiments, not the submitted $22.5$ tree system.
-
-Trees capture non-linear thresholds (``warm \emph{and} humid after several wet weeks''), lags express delayed effects, rolling means express accumulated exposure, and Fourier terms express season. This reduced hidden MAE from $26.7$ to $22.5$. But the validation forecast in Figure~\ref{fig:valforecast} exposed the next problem: the forest followed the seasonal level while repeatedly cutting off the largest peaks.
+with $w\in\{0,0.1,\ldots,1.0\}$. Local validation selected $w=0.2$ with XGBoost for Iquitos and $w=0.4$ with CatBoost for San Juan. Those blends are the second row of Table~\ref{tab:rankingflip}; because their public leaderboard result was worse, they were experiments, not the submitted $22.5$ tree system.
+Trees capture non-linear thresholds (``warm \emph{and} humid after several wet weeks''), lags express delayed effects, rolling means express accumulated exposure, and Fourier terms express season. This reduced public leaderboard MAE from $26.7$ to $22.5$. But the validation forecast in Figure~\ref{fig:valforecast} exposed the next problem: the forest followed the seasonal level while repeatedly cutting off the largest peaks.
 
 \subsubsection*{Residual Analysis \& Feature Engineering}
 We inspected the largest absolute residuals week by week. Several outbreak weeks had a sudden increase in cases even though the weather in that same row was not unusually extreme. The model had learned an overly instantaneous mapping---``this week's weather predicts this week's cases''---while the real process includes mosquito development, viral incubation and reporting delays. A rainfall or humidity episode can therefore matter weeks before the observed case peak.
@@ -354,18 +459,44 @@ We inspected the largest absolute residuals week by week. Several outbreak weeks
 \end{figure}
 
 This was the project's main pivot. We stopped asking only ``which learner wins?'' and asked ``what information is missing from the input?'' The answer was not one universal lag for all variables, but a city- and feature-specific history.
+\subsection{Stage 2: an MLP with lagged inputs (public leaderboard MAE $19.3\rightarrow18.8$)}
+\paragraph{Lagged climate associations.}
 
-\subsection{Stage 2: an MLP with lagged inputs (hidden MAE $19.3\rightarrow18.8$)}
-To test that hypothesis, we screened candidate history lengths from $3$ through $51$ weeks separately for every weather variable and city. For a candidate length $L$, a small decision tree received that variable's entire consecutive window $[x_{t-L+1},\ldots,x_t]$ and was scored by MAE. \key{As shown in Figure~\ref{fig:lag_heatmap}}, the resulting heatmap did not select the features themselves; it compared how much history of each feature was useful. 
+We first examined the association between
+individual historical climate measurements
+and dengue incidence at different temporal lags.
+
+Figure~\ref{fig:lag_heatmap} illustrates
+these associations for selected weather variables.
+The correlations vary with lag, variable,
+and city, motivating further investigation
+of historical climate representations.
+
+However, lagged correlation is not equivalent
+to predictive performance, and the lag with
+the largest correlation does not necessarily
+define the optimal history-window length.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/heatmap_lags.png} %
-\caption{Heatmap of MAE scores for candidate history lengths across weather variables. The darkest regions indicate the lowest error, which guided our selection of specific consecutive window lengths (e.g., 34 weeks for relative humidity in San Juan) rather than using a universal lag.}
+\caption{Lagged correlations between selected climate
+variables and weekly dengue cases in San Juan
+and Iquitos. The color scale represents signed
+correlation coefficients rather than prediction
+MAE. The plot illustrates temporal associations
+but does not determine the optimal length of
+a predictive history window.}
 \label{fig:lag_heatmap}
 \end{figure}
 A $40$-week choice therefore means all $40$ consecutive values, not only lag $40$.
 
-The strongest region of the heatmap was chosen for each feature and city, producing very different windows---for example, relative humidity used $34$ weeks in San Juan and $7$ in Iquitos. Because the original screen used ordinary ten-fold validation and nearby windows were often nearly tied, we treat exact values such as $39$ versus $40$ as engineering choices, not biological constants. The reliable insight was that climate memory is long, variable-specific and city-specific.
+Candidate history lengths were selected
+using a separate decision-tree screening
+procedure evaluated by MAE.
+
+The correlation heatmap provides exploratory
+motivation but should not be interpreted
+as the window-selection objective. For example, relative humidity used $34$ weeks in San Juan and $7$ in Iquitos. Because the original screen used ordinary ten-fold validation and nearby windows were often nearly tied, we treat exact values such as $39$ versus $40$ as engineering choices, not biological constants. The reliable insight was that climate memory is long, variable-specific and city-specific.
 
 We then gave a neural network this structured memory. Concatenating the selected windows produced $461$ inputs for San Juan and $380$ for Iquitos. The network is a three-layer perceptron with SELU activations \cite{selu}, dropout, a linear output and an absolute-error loss, trained with RMSprop and a plateau learning-rate decay. Figure~\ref{fig:arch} shows the two city architectures.
 
@@ -431,13 +562,13 @@ Iquitos & $35\rightarrow18$ & 8.17 & 7.91\\
 \bottomrule
 \end{tabular}
 \end{table}
-This gave a hidden MAE of $18.8$ for seed~$42$; averaged over three seeds it is $19.5$, a reminder that a single seed overstates performance.
+This gave a public leaderboard MAE of $18.8$ for seed~$42$; averaged over three seeds it is $19.5$, a reminder that a single seed overstates performance.
 
-\paragraph{Remaining problem.} The MLP improved the hidden result, supporting the time-lag hypothesis, but it created a statistical mismatch. The full dataset has only $1456$ labels, and separate-city training leaves $936$ San Juan labels and $520$ Iquitos labels. Against those sample sizes, the network receives $461$ and $380$ highly correlated coordinates per week. In San Juan the first layer alone has $46{,}100$ input weights. The model must discover simple concepts such as ``recent mean'', ``variability'' and ``trend'' from individual positions, and shifting a wet episode by one week moves its information into many different coordinates. The representation was informative but inefficient.
+\paragraph{Remaining problem.} The MLP improved the public leaderboard performance, supporting the time-lag hypothesis, but it created a statistical mismatch. The full dataset has only $1456$ labels, and separate-city training leaves $936$ San Juan labels and $520$ Iquitos labels. Against those sample sizes, the network receives $461$ and $380$ highly correlated coordinates per week. In San Juan the first layer alone has $46{,}100$ input weights. The model must discover simple concepts such as ``recent mean'', ``variability'' and ``trend'' from individual positions, and shifting a wet episode by one week moves its information into many different coordinates. The representation was informative but inefficient.
 
 \paragraph{Why eleven summaries per weather variable.} We did not choose eleven as a magic number. We listed the distinct questions the raw trajectory should answer while remaining small: What is the latest level? What has the average level been over short, monthly, two-month, quarterly, half-year and annual horizons? How volatile has it been recently and over a quarter? Is the recent month above the quarterly baseline? Is the variable rising or falling? These questions become one current value, six means ($2,4,8,13,26,52$ weeks), two standard deviations ($4,13$ weeks), one short-minus-medium contrast, and one $13$-week slope: $1+6+2+1+1=11$. The horizons align with interpretable calendar scales and overlap deliberately, allowing the MLP to compare short- and long-term exposure without seeing all $52$ raw positions.
 
-\subsection{Stage 3: multiscale summaries (hidden MAE $16.6$)}
+\subsection{Stage 3: multiscale summaries (public leaderboard MAE $16.6$)}
 We therefore replaced raw coordinates with the $180$ summaries of feature set (C) and kept \emph{the same MLP, training procedure and seed}. Under identical chronological folds (three folds, three seeds), summaries lower the mean and worst-fold errors in both cities (Table~\ref{tab:repr}). San Juan improves on mean, worst and outbreak error; Iquitos improves on mean and worst error, while its outbreak MAE rises slightly (from $23.2$ to $23.8$).
 
 \begin{table}[H]
@@ -457,10 +588,22 @@ IQ & Multiscale summaries & \textbf{7.588} & \textbf{10.596} & 23.795\\
 \end{tabular}
 \end{table}
 
-Weighted across the two cities by the competition weighting, the mean MAE improves from $15.862$ to $13.924$. On the hidden leaderboard, the error fell from $18.8$ to $16.6$. Replacing only San Juan and replacing both cities both scored $16.6$, so the gain comes from San Juan and the Iquitos representation change is approximately neutral at leaderboard precision.
+The multiscale representation reduced the mean
+chronological-validation MAE from 20.635 to 17.726
+in San Juan and from 7.908 to 7.588 in Iquitos.
 
+On the public leaderboard, the combined MAE
+improved from 18.8 to 16.6.
 \subsubsection*{Is it compression or just more information?}
-If the summaries helped by adding information, then raw lags \emph{plus} summaries should be best. In a two-fold ablation it was the worst (Figure~\ref{fig:ablation}): San Juan MAE was $17.86$ for raw histories, $\mathbf{12.61}$ for summaries and $18.43$ for raw plus summaries. The improvement came from \emph{discarding redundant coordinates and exposing stable temporal structure}. Summaries also cut the San Juan parameter count from $48{,}751$ to $20{,}651$ without flattening outbreaks (maximum test prediction rose from $174$ to $200$).
+If the summaries helped by adding information, then raw lags \emph{plus} summaries should be best. In a two-fold ablation it was the worst (Figure~\ref{fig:ablation}): San Juan MAE was $17.86$ for raw histories, $\mathbf{12.61}$ for summaries and $18.43$ for raw plus summaries.
+These results suggest that replacing highly
+correlated raw lag coordinates with compact
+multiscale summaries provides a more useful
+inductive bias for the MLP.
+
+However, the experiment does not isolate
+the effects of dimensionality reduction,
+optimization, and regularization.
 
 \begin{figure}[H]
 \centering
@@ -469,48 +612,48 @@ If the summaries helped by adding information, then raw lags \emph{plus} summari
 \label{fig:ablation}
 \end{figure}
 
-\subsection{Stage 4: four PLS scores (final hidden MAE $15.9$)}
-\label{sec:plsdetail}
-Even the $180$ summaries remain correlated: for example, $8$-, $13$- and $26$-week temperature means often move together. Partial Least Squares (PLS) \cite{pls} creates a small number of directions chosen to covary with the target. Let $X\in\mathbb{R}^{n\times180}$ be the multiscale matrix and $y\in\mathbb{R}^{n}$ the weekly cases. A simplified PLS component $t_k=Xw_k$ uses a weight vector that solves
-\begin{equation}
-w_k=\arg\max_{\lVert w\rVert=1}\ \operatorname{Cov}\bigl(Xw,\,y\bigr)^2 ,
-\end{equation}
-then deflates $X$ and $y$ before extracting the next direction. Unlike PCA, PLS uses $y$: it asks which directions in climate history are associated with cases, not merely which directions explain climate variance.
+\subsection{Stage 4: select, round and reproduce the exact $15.9832$ submission}
+\label{sec:finalrecipe}
+The restored scored file resolved an important provenance question. Its recorded recipe contains no PLS transformation. Instead, it combines the best confirmed pipeline for each city:
 
-\paragraph{Append, do not replace.} PLS-only inputs discarded useful nonlinear and seasonal detail, while many components were unstable. The selected design keeps all $180$ summaries and appends only four standardized scores:
-\begin{equation*}
-180\ \text{summaries} + 4\ \text{PLS scores}
-\longrightarrow 100 \longrightarrow 25 \longrightarrow 1.
-\end{equation*}
-The four scores add only $2.2\%$ to the input dimension. They act as supervised hints about useful cross-variable combinations; the network can still use every original rainfall, temperature, humidity and season statistic directly. PLS is applied to San Juan, where the multiscale representation produced the clear leaderboard gain; Iquitos remains on the $380$-input raw-lag model.
-
-\paragraph{Leakage-safe protocol.} Because PLS uses the target, it is refitted inside every chronological fold:
-\begin{enumerate}[label=\arabic*.]
-  \item fit interpolation/scaling parameters on the earlier training window;
-  \item build $180$ summaries and fit PLS using only that window and its targets;
-  \item standardize PLS scores with training-window statistics;
-  \item freeze the projection, transform the next $52$ weeks, and train/evaluate the $184$-input MLP.
-\end{enumerate}
-Fitting PLS once before splitting would let future labels shape the representation and invalidate validation.
-
-\begin{figure}[H]
+\begin{table}[H]
 \centering
-\includegraphics[width=\linewidth]{figures/pls_components_actual.png}
-\caption{Leakage-safe PLS diagnostics on DengAI San Juan data. Left: correlations between the four training-fitted scores and cases in the earlier training block and the future 52-week block. Right: largest signed loadings in component 1. The components transfer unevenly, which is why only four are appended and the original summaries are retained.}
-\label{fig:pls}
-\end{figure}
+\caption{Hash-verified recipe of the final submission.}
+\label{tab:finalrecipe}
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.0cm}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.0cm}}
+\toprule
+\textbf{City} & \textbf{Representation} & \textbf{MLP} & \textbf{Selection}\\
+\midrule
+San Juan & $180$ multiscale inputs ($16\times11+4$ season terms) & $180\rightarrow100\rightarrow25\rightarrow1$, seed $42$ & nearest-integer rounding\\
+Iquitos & $380$ feature-specific raw-history inputs & $380\rightarrow70\rightarrow18\rightarrow1$, seed $42$ & preserved raw-lag baseline\\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The local comparison was close relative to fold variance, so PLS was a bounded representation experiment rather than a claim of a decisive cross-validation win. The hidden score improved from $16.6$ to the final $\mathbf{15.9}$ without increasing network depth or changing Iquitos. This is evidence that a small target-aware augmentation can complement stable historical summaries.
+San Juan uses SELU hidden units, dropout $0.3/0.7$, learning rate $0.01$, mini-batches of $16$, and $40\times200$ update steps. After clipping to non-negative values, its continuous output is converted by
+\begin{equation}
+\hat y_{\mathrm{int}}=\left\lfloor\max(\hat y,0)+0.5\right\rfloor .
+\end{equation}
+This rule raised $128$ of the $260$ San Juan test predictions by one case relative to truncation and improved the chronological hold-out MAE from $16.635$ to $16.519$. Iquitos remains the archived seed-$42$ raw-lag prediction because multiscale compression did not improve that city's outbreak behaviour consistently.
+
+\paragraph{Reproduction contract.} The notebook pins Python $3.12$, NumPy $2.4.4$ and pandas $3.0.2$, recreates the submission, and compares it with the restored reference. The result is exact equality in all $416$ rows and the same SHA-256 digest:
+\begin{center}
+\submissionhash.
+\end{center}
+This version pin matters: the same code under an older NumPy environment produced numerically different predictions. The leaderboard labels are private, so the notebook cannot recompute $15.9832$ locally; it establishes that the reproduced CSV is byte-identical to the file associated with that observed score.
+
+\paragraph{Provenance correction.} PLS was investigated later as a supervised compression experiment \cite{pls}, but it is not present in this hash-verified submission. An earlier report draft incorrectly attributed the final leaderboard improvement to PLS. The final score must therefore be described as the result of the city-specific hybrid, the selected San Juan seed and rounding rule, not as a PLS gain.
 
 %--------------------------------------------------------------------
 \section{Results and analysis}
 %--------------------------------------------------------------------
 \subsection{The leaderboard journey}
-Table~\ref{tab:journey} and Figure~\ref{fig:journey} summarise the hidden-test MAE of every stage.
+Table~\ref{tab:journey} and Figure~\ref{fig:journey} summarise the public leaderboard MAE of every stage.
 
 \begin{table}[H]
 \centering
-\caption{Hidden-test MAE across stages (lower is better).}
+\caption{Observed public leaderboard MAE across stages (lower is better).}
 \label{tab:journey}
 \begin{tabular}{>{\raggedright\arraybackslash}p{3.8cm}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{3.2cm}r}
 \toprule
@@ -523,7 +666,7 @@ Improved dropout & Same windows & 3-layer MLP & 19.1\\
 Tuned raw-history MLP & 461 SJ / 380 IQ raw values & Tuned MLP, seed 42 & 18.8\\
 Multiscale MLP & 180 summaries & Same tuned MLP & 16.6\\
 Narrow multiscale & Same 180 summaries & $48\rightarrow12$ MLP & 18.1 (rejected)\\
-\textbf{PLS-augmented multiscale} & \textbf{180 summaries + 4 PLS scores (SJ)} & \textbf{Same tuned MLP} & \textbf{15.9}\\
+\textbf{Verified city hybrid} & \textbf{SJ: 180 summaries; IQ: 380 raw lags} & \textbf{Seed 42 + nearest rounding} & \textbf{15.9832}\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -531,7 +674,7 @@ Narrow multiscale & Same 180 summaries & $48\rightarrow12$ MLP & 18.1 (rejected)
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/06_leaderboard_journey.png}
-\caption{Hidden-test MAE by stage. The $16.6$ model is the pre-PLS parent; four target-aware scores produce the final $15.9$ result.}
+\caption{Observed public leaderboard MAE by stage. The final bar is the hash-verified city hybrid: multiscale San Juan, raw-history Iquitos and nearest-integer rounding.}
 \label{fig:journey}
 \end{figure}
 
@@ -552,36 +695,94 @@ Forest hyperparameter and component search & Several mixtures won on development
 Negative-binomial, volatility, recency and quantile corrections & Plausible count/time-series ideas did not improve robustly enough to replace the confirmed forest & A sophisticated output model cannot recover climate history that is absent from the input\\
 Three-seed raw-lag MLP ensemble & Averaging seeds scored $19.5$, while seed $42$ scored $18.8$ & Averaging highly correlated models can shrink rare peaks instead of adding useful diversity\\
 Raw lags plus summaries & More inputs were worse than summaries alone ($18.43$ vs. $12.61$ in the two-fold ablation) & The gain was compression and inductive bias, not simply more information\\
-Narrow $48\rightarrow12$ multiscale MLP & Won local architecture search by $0.224$ MAE but lost hidden test by $1.5$ MAE & Freeze the proven network when a searched local gain is smaller than fold variance\\
+Narrow $48\rightarrow12$ multiscale MLP & Won local architecture search by $0.224$ MAE but lost public leaderboard by $1.5$ MAE & Freeze the proven network when a searched local gain is smaller than fold variance\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-This effort was worthwhile because each negative result narrowed the diagnosis. Model-family tuning exposed generalisation risk; peak-by-peak residual inspection exposed missing temporal context; the raw-plus-summary ablation proved that compression, not feature count, caused the large improvement. The final score is therefore the end of an evidence chain, not a lucky architecture choice.
+This effort was worthwhile because each negative result narrowed the diagnosis. Model-family tuning exposed generalisation risk; peak-by-peak residual inspection exposed missing temporal context; the raw-plus-summary ablation provided
+additional evidence that compact temporal
+representations were more effective than
+simply increasing the number of inputs
+under the tested model configuration. The final score is therefore the end of an evidence chain, not a lucky architecture choice.
 
 \subsection{Local validation is evidence, not proof}
-After shrinking the input from $461$ to $180$, a local architecture search preferred a narrower $48\rightarrow12$ network by only $0.224$ validation MAE, and its outbreak error was already worse. On the hidden test it was $1.5$ MAE \emph{worse} ($18.1$ vs.\ $16.6$; Figure~\ref{fig:trap}). A small win after searching many candidates is likely selection noise. The representation survived hidden testing; the architecture difference did not. We therefore froze the $100\rightarrow25$ San Juan network and concentrated on controlled ablations of the representation.
+After shrinking the input from $461$ to $180$, a local architecture search preferred a narrower $48\rightarrow12$ network by only $0.224$ validation MAE, and its outbreak error was already worse. On the public leaderboard it was $1.5$ MAE \emph{worse} ($18.1$ vs.\ $16.6$; Figure~\ref{fig:trap}). A small win after searching many candidates is likely selection noise. The representation survived public leaderboard testing; the architecture difference did not. We therefore froze the $100\rightarrow25$ San Juan network and concentrated on controlled ablations of the representation.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.9\linewidth]{figures/07_local_validation_trap.png}
-\caption{The $48\rightarrow12$ network looked better locally ($-0.224$) but was worse on the hidden test ($+1.5$).}
+\caption{The $48\rightarrow12$ network looked better locally ($-0.224$) but was worse on the public leaderboard ($+1.5$).}
 \label{fig:trap}
 \end{figure}
 
-\subsection{Final submission and reproducibility boundary}
-The final submission is a city hybrid. San Juan uses $180$ summaries plus four fold-fitted, standardized PLS scores, followed by hidden layers $100\rightarrow25$, dropout $0.3/0.7$, learning rate $0.01$, seed $42$, and MAE loss. Iquitos keeps the tuned $380$-input raw-history MLP ($70\rightarrow18$, dropout $0.5/0.5$). The competition requires non-negative integer predictions; the notebook clips at zero, applies the recorded city-specific integer rule, restores the official template order, asserts all $416$ keys, and prints a SHA-256 digest.
+\subsection{Final submission and leaderboard performance}
 
-The notebook distinguishes three kinds of evidence. The $15.9$ value is the observed hidden-leaderboard score; hidden labels are unavailable locally. Chronological hold-out MAE is a development measurement and is never presented as hidden-test performance. Exact byte identity is checked against the uploaded CSV when that reference artifact is present. This separation prevents a saved notebook output or a locally good fold from being misreported as a leaderboard result.
+The final submission combines city-specific
+models with different temporal representations.
 
-Before PLS, we also tested integer conversion for the $16.6$ parent (Figure~\ref{fig:rounding}). Nearest-integer rounding raised $128$ of $260$ San Juan predictions by one case and improved that model's local hold-out MAE from $16.635$ to $16.519$. This was a small post-processing check, not the source of the final PLS gain.
+For San Juan, we use 180 multiscale climate
+features. This representation is processed by
+an MLP with hidden layers
+of 100 and 25 units.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\linewidth]{figures/rounding_comparison.png}
-\caption{San Juan test forecasts of the final model with truncation vs.\ round-to-nearest (top) and their difference (bottom).}
-\label{fig:rounding}
+For Iquitos, we retain the tuned raw-history
+MLP with 380 input features and hidden layers
+of 70 and 18 units.
+
+Both models generate non-negative integer
+predictions, which are assembled according
+to the official submission template. San Juan
+uses nearest-integer rounding; Iquitos predictions
+come from the preserved seed-$42$ raw-history file.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[
+        width=0.8\linewidth
+    ]{figures/submission_screenshot.png}
+
+    \caption{
+        Final DengAI public leaderboard result.
+        The model achieved an MAE of 15.9832
+        and was ranked 106th at the time of capture.
+        This result is distinct from chronological
+        cross-validation performance.
+    }
+    \label{fig:final_leaderboard}
 \end{figure}
+The final system achieved a public
+leaderboard MAE of \textbf{15.9832},
+with a rank of \textbf{106} at the time
+of evaluation, as shown in
+Figure~\ref{fig:final_leaderboard}.
+
+This result provides evidence of performance
+on the competition's public evaluation period.
+However, it does not independently establish
+generalization to unseen cities or future
+epidemic periods.
+
+Detailed implementation instructions,
+experimental configurations, and source code
+are provided in our GitHub repository.
+
+The reproduction notebook recreated all $416$
+predictions exactly. Both the restored and generated
+files have the following SHA-256:
+\par\noindent
+\submissionhash.
+
+
+
+% Nearest-integer rounding details are reported in Section~\ref{sec:finalrecipe}.
+
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=\linewidth]{figures/rounding_comparison.png}
+% \caption{San Juan test forecasts of the final model with truncation vs.\ round-to-nearest (top) and their difference (bottom).}
+% \label{fig:rounding}
+% \end{figure}
 
 \subsection{Error analysis}
 \begin{itemize}
@@ -591,60 +792,197 @@ Before PLS, we also tested integer conversion for the $16.6$ parent (Figure~\ref
   \item \textbf{Iquitos is near its floor.} Climatology is as good as complex models on Iquitos validation weeks ($\approx 7$), consistent with its small, noisy counts.
 \end{itemize}
 
-%--------------------------------------------------------------------
-\section{Discussion: does the model solve the problem?}
-%--------------------------------------------------------------------
-\paragraph{What the model achieves.} Relative to the first baseline, hidden MAE falls by about $40\%$ ($26.7\rightarrow15.9$) and relative to the tree system by about $29\%$. Because mean weekly cases are about $34$ in San Juan and $7.6$ in Iquitos, the model forecasts seasonal level and major rises usefully, but it is not accurate enough to provide exact counts for individual outbreak weeks.
 
-\paragraph{Real-world applicability.} The inputs are routinely collected climate series and the forecast uses \emph{no} previous case counts, so it can run without a delay in case reporting and complements a surveillance system that does. Plausible uses are early warning for vector-control timing, staffing and supply planning at the level of weeks to months. We did not measure the economic or health impact of such decisions; that would require deployment data and is outside the evidence we have.
+\section{Discussion}
 
-\paragraph{Limitations.}
-\begin{itemize}
-  \item Two cities and about $20$ years of data: generalisation to other locations is untested.
-  \item Climate-only inputs miss immunity, serotype mix, human mobility and control campaigns that drive outbreak size.
-  \item Model selection on a few chronological folds is noisy (Section~7.2); the hidden leaderboard is a single test period.
-  \item Point forecasts only; decision makers would also need prediction intervals.
-  \item The reproduced pipeline preserves a historical two-row alignment/circular training-context quirk for compatibility; a clean reimplementation should compare this explicitly with a strictly chronological alignment.
-\end{itemize}
+\subsection{Feature engineering as the primary driver of performance}
 
-\paragraph{Lessons.}
-\begin{enumerate}
-  \item A model that wins training and local validation can still lose on a later hidden regime. The XGBoost/CatBoost reversal is why we kept chronological horizons, amplitude checks and simple fallbacks.
-  \item Averaging $500$ decorrelated trees and requiring five samples per leaf gave a strong small-data baseline, but lower estimator variance could not repair missing temporal information.
-  \item The same small network improved from $18.8$ to $16.6$ when the \emph{description of the past} improved: level, duration, variability, direction and season.
-  \item Four supervised PLS directions improved the hidden result again to $15.9$ without replacing the robust summaries or increasing network depth.
-  \item More features are not better features: raw plus summaries was the worst of three options. The most valuable work was error analysis followed by controlled ablation.
-\end{enumerate}
+The central finding of this project is that the representation
+of climate history played a more important role in our
+experiments than increasing model complexity.
+Rather than continuously introducing more sophisticated
+predictive models, our largest improvements came from
+investigating what information the models received
+and how that information was represented.
+
+\paragraph{From instantaneous observations to temporal history.}
+
+Our initial tree-based models used current climate
+measurements, selected lags, rolling statistics, and
+seasonal features. Although these models captured
+general seasonal patterns, error analysis revealed
+that they frequently underestimated large dengue
+outbreaks.
+
+This observation motivated us to investigate delayed
+relationships between climate conditions and dengue
+incidence. We constructed city- and variable-specific
+history windows, producing 461 input coordinates for
+San Juan and 380 for Iquitos.
+
+The raw-history MLP improved the public leaderboard
+MAE from 22.5 to 18.8 after temporal and architectural
+tuning. This result suggested that richer historical
+climate information could be useful for prediction.
+However, because both the model family and feature
+representation changed, this improvement cannot be
+attributed exclusively to feature engineering.
+
+\paragraph{From raw histories to multiscale representations.}
+
+Although raw histories preserve detailed temporal
+information, they also introduce hundreds of highly
+correlated inputs. This creates an inefficient
+representation for a dataset containing only
+936 San Juan and 520 Iquitos training observations.
+
+We addressed this limitation by constructing 11
+statistics for each of the 16 weather variables,
+together with four cyclic seasonal features,
+resulting in 180-dimensional input vectors.
+
+These features represent climate conditions at
+multiple timescales, including current levels,
+short- and long-term averages, variability,
+recent changes, and temporal trends.
+
+Importantly, the multiscale representation
+does not merely reduce dimensionality.
+It introduces an inductive bias by explicitly
+providing temporal patterns that the MLP would
+otherwise need to learn from individual weekly
+observations.
+
+Under the same tuned MLP and chronological
+validation procedure, the multiscale
+representation reduced the mean MAE in San Juan
+from 20.635 to 17.726 and in Iquitos from
+7.908 to 7.588.
+
+The public leaderboard MAE also improved
+from 18.8 to 16.6.
+
+These controlled experiments provide our
+strongest evidence that temporal feature
+representation was a major contributor
+to predictive performance.
+
+\paragraph{Why adding more features was not sufficient.}
+
+We additionally compared raw histories,
+multiscale summaries, and their concatenation.
+
+The combined representation performed worse
+than the multiscale representation alone
+in the reported two-fold ablation.
+
+This finding suggests that useful feature
+engineering is not simply the addition of
+more information or input dimensions.
+
+Instead, constructing compact and meaningful
+representations can improve the inductive bias
+and optimization behavior of neural networks
+trained on relatively small datasets.
+
+Nevertheless, this experiment does not
+independently isolate dimensionality reduction
+from changes in optimization and regularization.
+
+\paragraph{Artifact recovery changed the conclusion.}
+
+The final CSV is part of the experimental evidence,
+not merely an export. Recovering it allowed us to
+match every prediction to its recorded recipe and
+correct a mistaken PLS attribution. The notebook
+also showed that the numerical environment is part
+of the model: Python $3.12$ with NumPy $2.4.4$
+reproduced the artifact exactly, whereas an older
+NumPy environment did not. For small neural models,
+code, data, package versions, output file and hash
+must therefore be archived together.
+
+\subsection{Limitations and implications}
+
+Despite these improvements, dengue prediction
+remains challenging, particularly during rare
+and extreme outbreaks.
+
+Our experiments showed that lower overall MAE
+does not necessarily imply better prediction
+of outbreak weeks. In Iquitos, for example,
+multiscale summaries slightly increased
+outbreak-week MAE despite improving average
+validation performance.
+
+Furthermore, our results are limited to two
+cities, a relatively small historical dataset,
+and the climate measurements supplied by the
+competition.
+
+The historical feature-construction pipeline
+also contains alignment and temporal-context
+behaviors that require further causal auditing
+before prospective forecasting claims can
+be established.
+
+Therefore, the observed leaderboard performance
+should not be interpreted as direct evidence of
+real-world early-warning effectiveness.
+
+\paragraph{Main lesson.}
+
+Our findings emphasize that, particularly for
+small time-series datasets, the quality and
+structure of input features can be as important
+as the choice of predictive algorithm.
+
+In our experiments, the most convincing
+improvements emerged from diagnosing missing
+temporal information, constructing multiscale
+summaries, and preserving a city-specific hybrid.
+
+The broader lesson is that feature engineering
+should be treated as a central part of model
+design rather than merely a preprocessing step.
+
 
 \section{Future work}
 \label{sec:future}
 \begin{itemize}
-  \item Repeat the four-component PLS result over more temporal cut points and seeds, and archive the exact submitted CSV and hash alongside the score.
+  \item Repeat the multiscale MLP over more temporal cut points and seeds, and archive each exact submitted CSV, manifest and hash alongside its score.
+  \item Evaluate PLS prospectively as a separate leakage-safe experiment rather than attributing it to the existing $15.9832$ artifact.
   \item Quantify uncertainty (quantile loss or ensembles over seeds) to give outbreak risk bands rather than a single count.
   \item Evaluate more folds and repeated seeds before accepting architecture changes smaller than the fold-to-fold spread.
   \item Test the representation on other cities or other vector-borne diseases.
 \end{itemize}
 
 \section{Conclusion}
-We forecast weekly dengue cases in two cities from climate history. The path was not ``try a larger model until the score improves.'' XGBoost and CatBoost first won locally and lost on the hidden period. A lower-variance, city-specific $500$-tree system with minimum leaf size five recovered to $22.5$, but its missed outbreak peaks revealed that the input was too instantaneous. Feature-specific contiguous histories let an MLP exploit delayed climate effects ($18.8$), then exposed a second problem: $461/380$ correlated inputs for only $936/520$ city labels. Replacing raw coordinates with $180$ multiscale summaries improved hidden MAE to $16.6$; appending four leakage-safe, target-aware PLS scores for San Juan produced the final $\mathbf{15.9}$. Neither gain required a deeper network. The durable lesson is that \emph{error analysis identified the missing idea, and a stable representation of time mattered more than model complexity}.
+This project investigated weekly dengue case prediction for San Juan and Iquitos using climate and vegetation measurements. Rather than treating model selection as the primary challenge, we progressively examined how temporal dependencies, feature representations, and model complexity influence predictive performance.
 
+Our experiments produced three main findings. First, a model with better chronological validation performance did not necessarily achieve a better public leaderboard result, demonstrating the limitations of selecting models using a small number of temporal folds. Second, representing climate history through multiscale statistical summaries improved the performance of a fixed MLP architecture compared with raw lagged inputs. Third, the strongest submission was a city-specific hybrid rather than a single universal representation: San Juan used multiscale summaries and nearest rounding, while Iquitos retained its raw-history model.
+
+The final hybrid system achieved a public leaderboard MAE of \textbf{15.9832}. Its $416$ predictions were reproduced exactly with a pinned environment and verified by SHA-256. Nevertheless, outbreak prediction remains difficult, and the benchmark does not directly establish prospective forecasting performance. Future work should examine strictly causal preprocessing, repeated-seed stability, and evaluation under realistic information-availability constraints.
+
+Overall, the project highlights the importance of diagnosing model errors and designing informative temporal representations, rather than relying exclusively on increasingly complex predictive architectures.
 %--------------------------------------------------------------------
 \section*{Author Contributions}
 %--------------------------------------------------------------------
 \begin{itemize}
-  \item \textbf{Duy Chien Nguyen:} Conducted data preprocessing, developed the baseline models, fine-tuned model hyperparameters, implemented Partial Least Squares (PLS) to improve statistical representations, made the presentation slides, and wrote the report.
-  \item \textbf{Dang Quy Nguyen:} Conducted data preprocessing, devveloped and improved the tree-based methodologies, led feature engineering efforts, built the lagged feature representations and the Multi-Layer Perceptron (MLP) architecture,  made the presentation slides, and wrote the report.
+  \item \textbf{Duy Chien Nguyen:} Conducted data preprocessing, developed the baseline models, investigated Partial Least Squares (PLS) as a later representation experiment, made the presentation slides, and wrote the report.
+  \item \textbf{Dang Quy Nguyen:} Conducted data preprocessing, developed and improved the tree-based methodologies, led feature engineering efforts, built the lagged feature representations and the Multi-Layer Perceptron (MLP) architecture,  made the presentation slides, and wrote the report.
 \end{itemize}
 
 %--------------------------------------------------------------------
-\appendix
-\section{Reproducibility}
+\section*{Code Availability}
+
 \begin{itemize}
   \item Data: DengAI training/test CSV files from the competition site.
-  \item \item \textbf{Code Repository:} The complete source code, trained models, and reproducible notebooks are available on GitHub at \url{https://github.com/dangnq2501/DengAI}.
+  \item \textbf{Code Repository:} The complete source code, trained models, and reproducible notebooks are available on GitHub at \url{https://github.com/dangnq2501/DengAI}.
   \item \textbf{Presentation Video:} A recorded video of our project presentation can be viewed at \url{https://youtu.be/Et3oHyoi_VI}.
-  \item The hidden MAE $15.9$ is a leaderboard observation. Exact byte-level reproduction is asserted only when the uploaded reference CSV is stored at the path documented by the notebook.
-  \item Figures in this report were produced by the project's plotting scripts and notebooks and are included in the \texttt{figures/} folder.
+  \item The public leaderboard MAE $15.9832$ is a leaderboard observation associated with the restored artifact; hidden labels are unavailable locally.
+  \item Reproduction generated the same $416$ predictions. Its SHA-256 is:\newline
+  \submissionhash.
 \end{itemize}
 
 \begin{thebibliography}{9}
